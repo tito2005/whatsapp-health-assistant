@@ -22,5 +22,6 @@
   "terminal.integrated.fontFamily": "MesloLGS NF",
   "workbench.colorTheme": "Default Dark+",
   "explorer.confirmDelete": false,
-  "explorer.confirmDragAndDrop": false
+  "explorer.confirmDragAndDrop": false,
+  "typescript.tsdk": "node_modules/typescript/lib"
 }

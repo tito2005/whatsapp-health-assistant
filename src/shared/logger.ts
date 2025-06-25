@@ -1,97 +1,78 @@
-// src/shared/logger.ts - Robust Pino logger with proper Baileys integration
 import { config } from '@/config/environment';
+import fs from 'fs';
 import path from 'path';
 import pino from 'pino';
 
-// Create logs directory path
+// Ensure logs directory exists
 const logDir = path.resolve(config.logFilePath);
+fs.mkdirSync(logDir, { recursive: true });
 
-// Development transport configuration
-const developmentTransport = pino.transport({
-  targets: [
+// Create logger based on environment
+const createLogger = (): pino.Logger => {
+  const streams: pino.StreamEntry[] = [];
+
+  // Always log to console in development
+  if (config.nodeEnv === 'development') {
+    streams.push({
+      level: config.logLevel as pino.Level,
+      stream: pino.transport({
+        target: 'pino-pretty',
+        options: {
+          colorize: true,
+          translateTime: 'SYS:standard',
+          ignore: 'pid,hostname',
+          messageFormat: '{component} | {msg}',
+        }
+      })
+    });
+  }
+
+  // File streams for both dev and production
+  streams.push(
     {
-      target: 'pino-pretty',
-      level: config.logLevel,
-      options: {
-        colorize: true,
-        translateTime: 'SYS:standard',
-        ignore: 'pid,hostname',
-        singleLine: false,
-        hideObject: false,
-      },
-    },
-    {
-      target: 'pino/file',
       level: 'error',
-      options: {
-        destination: path.join(logDir, 'error.log'),
-        mkdir: true,
-      },
+      stream: pino.destination({
+        dest: path.join(logDir, 'error.log'),
+        sync: false, // Async for better performance
+      })
     },
     {
-      target: 'pino/file',
-      level: config.logLevel,
-      options: {
-        destination: path.join(logDir, 'combined.log'),
-        mkdir: true,
-      },
-    },
-  ],
-});
+      level: config.logLevel as pino.Level,
+      stream: pino.destination({
+        dest: path.join(logDir, 'combined.log'),
+        sync: false,
+      })
+    }
+  );
 
-// Production transport configuration
-const productionTransport = pino.transport({
-  targets: [
-    {
-      target: 'pino/file',
-      level: 'error',
-      options: {
-        destination: path.join(logDir, 'error.log'),
-        mkdir: true,
-      },
+  return pino({
+    level: config.logLevel,
+    base: {
+      service: 'whatsapp-health-chatbot',
+      env: config.nodeEnv,
     },
-    {
-      target: 'pino/file',
-      level: config.logLevel,
-      options: {
-        destination: path.join(logDir, 'combined.log'),
-        mkdir: true,
-      },
+    timestamp: pino.stdTimeFunctions.isoTime,
+    formatters: {
+      level: (label) => ({ level: label.toUpperCase() }),
     },
-  ],
-});
-
-// Logger configuration
-const loggerConfig: pino.LoggerOptions = {
-  level: config.logLevel,
-  base: {
-    service: 'whatsapp-health-chatbot',
-    environment: config.nodeEnv,
-  },
-  timestamp: pino.stdTimeFunctions.isoTime,
-  formatters: {
-    level: (label) => {
-      return { level: label };
+    serializers: {
+      err: pino.stdSerializers.err,
+      error: pino.stdSerializers.err,
+      req: (req) => ({
+        method: req.method,
+        url: req.url,
+        path: req.path,
+        parameters: req.parameters,
+      }),
+      res: (res) => ({
+        statusCode: res.statusCode,
+      }),
     },
-    bindings: (bindings) => {
-      return {
-        pid: bindings.pid,
-        hostname: bindings.hostname,
-      };
-    },
-  },
-  serializers: {
-    error: pino.stdSerializers.err,
-    req: pino.stdSerializers.req,
-    res: pino.stdSerializers.res,
-  },
+  }, pino.multistream(streams));
 };
 
-// Create main logger instance
-const logger = pino(
-  loggerConfig,
-  config.nodeEnv === 'development' ? developmentTransport : productionTransport
-);
+// Create the main logger instance
+export const logger = createLogger();
 
 // Baileys-compatible logger interface
 interface BaileysLogger {
@@ -105,187 +86,175 @@ interface BaileysLogger {
   child: (bindings: any) => BaileysLogger;
 }
 
-// Baileys-compatible logger adapter
 export const createBaileysLogger = (level: pino.Level = 'error'): BaileysLogger => {
   const baileysLogger = logger.child({ component: 'baileys' });
   
+  // Messages to ignore from Baileys (too noisy)
+  const ignorePatterns = [
+    'recv msgtype',
+    'sending ack',
+    'recv ack',
+    'handleReceipt',
+    'proto message',
+    'binMessage',
+  ];
+
+  // Error patterns to downgrade to warnings
+  const downgradeErrors = [
+    'PreKeyError',
+    'failed to decrypt message',
+    'message unavailable',
+    'waiting for message',
+  ];
+  
+  const shouldLog = (message: string, logLevel: string): boolean => {
+    // Always log errors and warnings unless they're known noise
+    if (logLevel === 'error' || logLevel === 'warn') {
+      // Check if it's a known non-critical error
+      if (downgradeErrors.some(pattern => message.includes(pattern))) {
+        return false; // Skip these common errors
+      }
+      return true;
+    }
+    
+    // Log important connection events
+    if (message.includes('QR') || 
+        message.includes('connection') || 
+        message.includes('open') ||
+        message.includes('close') ||
+        message.includes('authenticated')) {
+      return true;
+    }
+    
+    // Skip noisy messages
+    return !ignorePatterns.some(pattern => message.toLowerCase().includes(pattern.toLowerCase()));
+  };
+
   const createLoggerInstance = (childLogger: pino.Logger): BaileysLogger => {
     return {
       level,
       info: (message: any, ...args: any[]) => {
         const msgStr = typeof message === 'string' ? message : JSON.stringify(message);
-        if (msgStr.includes('QR') || msgStr.includes('connection') || msgStr.includes('open')) {
-          childLogger.info({ args }, msgStr);
-        } else {
-          childLogger.debug({ args }, msgStr);
+        if (shouldLog(msgStr, 'info')) {
+          childLogger.info({ baileys: args }, msgStr);
         }
       },
       error: (message: any, ...args: any[]) => {
         const msgStr = typeof message === 'string' ? message : JSON.stringify(message);
-        childLogger.error({ args }, msgStr);
+        
+        // Downgrade known non-critical errors to debug
+        if (msgStr.includes('PreKeyError') || msgStr.includes('failed to decrypt')) {
+          childLogger.debug({ baileys: args }, `[Known Issue] ${msgStr}`);
+          return;
+        }
+        
+        childLogger.error({ baileys: args, stack: new Error().stack }, msgStr);
       },
       warn: (message: any, ...args: any[]) => {
         const msgStr = typeof message === 'string' ? message : JSON.stringify(message);
-        childLogger.warn({ args }, msgStr);
+        if (shouldLog(msgStr, 'warn')) {
+          childLogger.warn({ baileys: args }, msgStr);
+        }
       },
       debug: (message: any, ...args: any[]) => {
         const msgStr = typeof message === 'string' ? message : JSON.stringify(message);
-        childLogger.debug({ args }, msgStr);
+        if (shouldLog(msgStr, 'debug')) {
+          childLogger.debug({ baileys: args }, msgStr);
+        }
       },
       trace: (message: any, ...args: any[]) => {
-        const msgStr = typeof message === 'string' ? message : JSON.stringify(message);
-        childLogger.trace({ args }, msgStr);
+        // Trace is too verbose, only in development
+        if (config.nodeEnv === 'development') {
+          const msgStr = typeof message === 'string' ? message : JSON.stringify(message);
+          childLogger.trace({ baileys: args }, msgStr);
+        }
       },
       fatal: (message: any, ...args: any[]) => {
         const msgStr = typeof message === 'string' ? message : JSON.stringify(message);
-        childLogger.fatal({ args }, msgStr);
+        childLogger.fatal({ baileys: args }, msgStr);
       },
-      child: (bindings: any) => {
-        const newChildLogger = childLogger.child(bindings);
-        return createLoggerInstance(newChildLogger);
-      },
+      child: (bindings: any) => createLoggerInstance(childLogger.child(bindings)),
     };
   };
 
   return createLoggerInstance(baileysLogger);
 };
 
-// Enhanced logger with additional methods for application use
-export const enhancedLogger = {
-  ...logger,
+// Structured logging helpers - keep it simple but useful
+export const log = {
+  // System lifecycle
+  startup: (message: string, meta?: any) => 
+    logger.info({ component: 'system', phase: 'startup', ...meta }, message),
   
-  // WhatsApp specific logging
+  shutdown: (message: string, meta?: any) => 
+    logger.info({ component: 'system', phase: 'shutdown', ...meta }, message),
+  
+  // WhatsApp events
   whatsapp: {
-    connection: (message: string, data?: any) => 
-      logger.info({ component: 'whatsapp-connection', ...data }, message),
-    message: (message: string, data?: any) => 
-      logger.info({ component: 'whatsapp-message', ...data }, message),
-    error: (message: string, error?: any, data?: any) => 
-      logger.error({ component: 'whatsapp', error, ...data }, message),
-    qr: (message: string, data?: any) => 
-      logger.info({ component: 'whatsapp-qr', ...data }, message),
-    auth: (message: string, data?: any) => 
-      logger.info({ component: 'whatsapp-auth', ...data }, message),
+    connected: (jid: string) => 
+      logger.info({ component: 'whatsapp', event: 'connected', jid }, 'WhatsApp connected'),
+    
+    disconnected: (reason?: string) => 
+      logger.warn({ component: 'whatsapp', event: 'disconnected', reason }, 'WhatsApp disconnected'),
+    
+    message: (from: string, messageId: string, type: string) =>
+      logger.info({ component: 'whatsapp', event: 'message', from, messageId, type }, 'Message received'),
+    
+    qr: (attempt: number) =>
+      logger.info({ component: 'whatsapp', event: 'qr', attempt }, 'QR code generated'),
   },
   
-  // Claude API specific logging
-  claude: {
-    request: (message: string, data?: any) => 
-      logger.info({ component: 'claude-api', ...data }, message),
-    response: (message: string, data?: any) => 
-      logger.info({ component: 'claude-api', ...data }, message),
-    error: (message: string, error?: any, data?: any) => 
-      logger.error({ component: 'claude-api', error, ...data }, message),
-    tokens: (message: string, data?: any) => 
-      logger.info({ component: 'claude-tokens', ...data }, message),
+  // API calls
+  api: {
+    request: (service: string, method: string, endpoint: string) =>
+      logger.info({ component: 'api', service, method, endpoint }, 'API request'),
+    
+    response: (service: string, status: number, duration: number) =>
+      logger.info({ component: 'api', service, status, duration }, 'API response'),
+    
+    error: (service: string, error: any) =>
+      logger.error({ component: 'api', service, err: error }, 'API error'),
   },
   
-  // Order processing specific logging
+  // Business events
   order: {
-    created: (message: string, data?: any) => 
-      logger.info({ component: 'order-processing', ...data }, message),
-    updated: (message: string, data?: any) => 
-      logger.info({ component: 'order-processing', ...data }, message),
-    completed: (message: string, data?: any) => 
-      logger.info({ component: 'order-completed', ...data }, message),
-    error: (message: string, error?: any, data?: any) => 
-      logger.error({ component: 'order-processing', error, ...data }, message),
+    created: (orderId: string, customerId: string, total: number) =>
+      logger.info({ component: 'order', event: 'created', orderId, customerId, total }, 'Order created'),
+    
+    error: (orderId: string, error: any) =>
+      logger.error({ component: 'order', event: 'error', orderId, err: error }, 'Order error'),
   },
   
-  // Customer interaction logging
-  customer: {
-    interaction: (message: string, data?: any) => 
-      logger.info({ component: 'customer-service', ...data }, message),
-    conversation: (message: string, data?: any) => 
-      logger.info({ component: 'customer-conversation', ...data }, message),
-    error: (message: string, error?: any, data?: any) => 
-      logger.error({ component: 'customer-service', error, ...data }, message),
+  // Performance metrics
+  perf: (operation: string, duration: number, meta?: any) => {
+    const level = duration > 3000 ? 'warn' : 'info';
+    logger[level]({ component: 'performance', operation, duration, ...meta }, 
+      `Operation completed in ${duration}ms`);
   },
   
-  // Performance monitoring
-  performance: {
-    timing: (operation: string, duration: number, data?: any) => 
-      logger.info({ component: 'performance', operation, duration, ...data }, 'Operation completed'),
-    slow: (operation: string, duration: number, data?: any) => 
-      logger.warn({ component: 'performance', operation, duration, ...data }, 'Slow operation detected'),
-    memory: (message: string, data?: any) => 
-      logger.info({ component: 'performance-memory', ...data }, message),
-  },
-  
-  // Security logging
-  security: {
-    auth: (message: string, data?: any) => 
-      logger.info({ component: 'security-auth', ...data }, message),
-    violation: (message: string, data?: any) => 
-      logger.warn({ component: 'security-violation', ...data }, message),
-    rateLimit: (message: string, data?: any) => 
-      logger.warn({ component: 'security-ratelimit', ...data }, message),
-    error: (message: string, error?: any, data?: any) => 
-      logger.error({ component: 'security', error, ...data }, message),
-  },
-
-  // System monitoring
-  system: {
-    startup: (message: string, data?: any) => 
-      logger.info({ component: 'system-startup', ...data }, message),
-    shutdown: (message: string, data?: any) => 
-      logger.info({ component: 'system-shutdown', ...data }, message),
-    health: (message: string, data?: any) => 
-      logger.info({ component: 'system-health', ...data }, message),
-    error: (message: string, error?: any, data?: any) => 
-      logger.error({ component: 'system', error, ...data }, message),
-  },
+  // Generic error logging with context
+  error: (message: string, error: any, context?: any) =>
+    logger.error({ err: error, context }, message),
 };
 
-// Export both standard logger and enhanced logger
-export { logger };
-export default enhancedLogger;
-
-// Log rotation utility (for production environments)
-export const setupLogRotation = async (): Promise<void> => {
-  if (config.nodeEnv === 'production') {
-    logger.info('Setting up log rotation for production environment');
-    
-    // Note: In production, consider using external log rotation tools like:
-    // - logrotate (Linux)
-    // - PM2 log rotation
-    // - External logging services (AWS CloudWatch, etc.)
-    
-    logger.info('Log rotation setup completed');
-  }
-};
-
-// Graceful shutdown logging
+// Graceful shutdown with log flushing
 export const setupGracefulShutdown = (): void => {
-  const gracefulShutdown = (signal: string) => {
-    logger.info(`Received ${signal}, shutting down gracefully`);
-    
-    // Flush any pending logs
-    logger.flush();
-    
-    setTimeout(() => {
-      process.exit(0);
-    }, 1000);
-  };
+  const signals = ['SIGTERM', 'SIGINT', 'SIGUSR2'];
   
-  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-  process.on('SIGUSR2', () => gracefulShutdown('SIGUSR2')); // nodemon restart
+  signals.forEach(signal => {
+    process.once(signal, async () => {
+      log.shutdown(`Received ${signal}, shutting down gracefully`);
+      
+      // Give logs time to flush
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      process.exit(0);
+    });
+  });
 };
 
-// Health check for logger
-export const loggerHealthCheck = (): { status: string; component: string } => {
-  try {
-    logger.info('Logger health check');
-    return { status: 'healthy', component: 'pino-logger' };
-  } catch (error) {
-    return { status: 'unhealthy', component: 'pino-logger' };
-  }
-};
+// Initialize graceful shutdown
+setupGracefulShutdown();
 
-// Development helper - pretty print object
-export const logObject = (obj: any, label?: string): void => {
-  if (config.nodeEnv === 'development') {
-    logger.info({ object: obj }, label || 'Debug Object');
-  }
-};
+// Export for backward compatibility
+export default logger;

@@ -21,6 +21,7 @@ export class BaileysClient implements WhatsAppClient {
   private sessionPath: string;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
+  private messageHandler?: (message: any) => Promise<void>;
 
   constructor() {
     this.sessionPath = path.join(process.cwd(), 'session', config.whatsappSessionId);
@@ -270,20 +271,28 @@ private async handleConnectionUpdate(update: Partial<ConnectionState>): Promise<
       // Handle read receipts, delivery confirmations, etc.
     }
   }
+  public setMessageHandler(handler: (message: any) => Promise<void>): void {
+    this.messageHandler = handler;
+  }
 
+  // Add this method to expose the socket (needed for typing indicator):
+  public getSocket(): WASocket | null {
+    return this.socket;
+  }
   private async processMessage(message: WAMessage): Promise<void> {
     // This will be integrated with the WhatsApp service
-    // For now, just log the message
     const messageText = message.message?.conversation || 
-                       message.message?.extendedTextMessage?.text ||
-                       'Non-text message';
+                      message.message?.extendedTextMessage?.text ||
+                      'Non-text message';
 
     logger.info('Processing message', {
       from: message.key?.remoteJid,
       text: messageText.substring(0, 100), // Log first 100 chars
     });
 
-    // TODO: Integrate with WhatsAppService.processIncomingMessage()
-    // This is where we'll call the service to handle the message
+    // Call the message handler if set
+    if (this.messageHandler) {
+      await this.messageHandler(message);
+    }
   }
 }

@@ -3,23 +3,17 @@ import { Router } from 'express';
 import { WhatsAppController } from './whatsapp-controller';
 
 const router = Router();
-const whatsappController = new WhatsAppController();
+const controller = new WhatsAppController();
 
-// Webhook endpoint for receiving messages
-router.post('/webhook', asyncHandler(whatsappController.handleWebhook));
+// Existing routes
+router.get('/status', asyncHandler(controller.getStatus));
+router.get('/qr', asyncHandler(controller.getQRCode));
+router.get('/qr/display', asyncHandler(controller.displayQRCode));
+router.post('/send', asyncHandler(controller.sendMessage));
+router.post('/disconnect', asyncHandler(controller.disconnect));
 
-// Get connection status
-router.get('/status', asyncHandler(whatsappController.getStatus));
-
-// Get QR code for authentication
-router.get('/qr', asyncHandler(whatsappController.getQRCode));
-// Add this new route for displaying QR as HTML
-router.get('/qr-display', asyncHandler(whatsappController.displayQRCode));
-
-// Send manual message (for testing)
-router.post('/send', asyncHandler(whatsappController.sendMessage));
-
-// Disconnect WhatsApp
-router.post('/disconnect', asyncHandler(whatsappController.disconnect));
+// New conversation management routes
+router.delete('/conversation/:phoneNumber', asyncHandler(controller.clearConversation));
+router.get('/conversation/:phoneNumber/summary', asyncHandler(controller.getConversationSummary));
 
 export { router as whatsappRoutes };
