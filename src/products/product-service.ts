@@ -163,8 +163,12 @@ export class ProductService {
     const healthMappings = this.getIndonesianHealthMappings();
     
     for (const [indonesian, english] of Object.entries(healthMappings)) {
-      if ((normalized1.includes(indonesian) || normalized1.includes(english[0])) &&
-          (normalized2.includes(indonesian) || english.some(eng => normalized2.includes(eng)))) {
+      if (english.length === 0) continue; // Skip if no English terms 
+      
+      if (
+        (normalized1.includes(indonesian) || (english[0] && normalized1.includes(english[0]))) &&
+        (normalized2.includes(indonesian) || english.some(eng => normalized2.includes(eng)))
+      ) {
         return true;
       }
     }
@@ -207,9 +211,9 @@ export class ProductService {
       };
 
       const range = budgetRanges[context.budget];
-      if (context.budget === 'low' && product.price > range.max) {
+      if (context.budget === 'low' && 'max' in range && product.price > range.max) {
         adjustedScore *= 0.7; // Reduce score for expensive products on low budget
-      } else if (context.budget === 'high' && product.price > (range.min || 0)) {
+      } else if (context.budget === 'high' && 'min' in range && product.price > range.min) {
         adjustedScore *= 1.1; // Boost premium products for high budget
       }
     }
