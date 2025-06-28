@@ -5,6 +5,46 @@
   "repository": "git@github.com:Ariftan77/whatsapp-health-assistant.git",
   "author": "Ariftan77 <ariftan7788@gmail.com>",
   "license": "MIT",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/app.js",
+    "dev": "nodemon --exec \"ts-node -r tsconfig-paths/register src/app.ts\"",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "lint": "eslint src/**/*.ts",
+    "lint:fix": "eslint src/**/*.ts --fix",
+    "format": "prettier --write src/**/*.ts",
+    "type-check": "tsc --noEmit",
+    "clean": "rm -rf dist",
+    
+    "db:setup": "ts-node -r tsconfig-paths/register scripts/setup-database.ts setup",
+    "db:setup:safe": "ts-node -r tsconfig-paths/register scripts/setup-database-only.ts setup",
+    "db:setup:isolated": "ts-node -r tsconfig-paths/register scripts/setup-db-isolated.ts setup",
+    "db:health": "ts-node -r tsconfig-paths/register scripts/setup-database.ts health",
+    "db:health:safe": "ts-node -r tsconfig-paths/register scripts/setup-database-only.ts health",
+    "db:health:isolated": "ts-node -r tsconfig-paths/register scripts/setup-db-isolated.ts health",
+    "db:seed": "ts-node -r tsconfig-paths/register scripts/setup-database.ts seed",
+    "db:seed:safe": "ts-node -r tsconfig-paths/register scripts/setup-database-only.ts seed",
+    "db:seed:validate": "ts-node -r tsconfig-paths/register scripts/setup-database.ts seed validate",
+    "db:test": "ts-node -r tsconfig-paths/register scripts/setup-database.ts test",
+    "db:summary": "ts-node -r tsconfig-paths/register scripts/setup-database.ts summary",
+    "db:summary:safe": "ts-node -r tsconfig-paths/register scripts/setup-database-only.ts summary",
+    "db:summary:isolated": "ts-node -r tsconfig-paths/register scripts/setup-db-isolated.ts summary",
+    "db:check": "ts-node -r tsconfig-paths/register scripts/setup-database.ts check",
+    
+    "products:validate": "ts-node -r tsconfig-paths/register scripts/seed-products.ts validate",
+    "products:summary": "ts-node -r tsconfig-paths/register scripts/seed-products.ts summary",
+    
+    "whatsapp:test": "ts-node -r tsconfig-paths/register scripts/test-whatsapp-connection.ts",
+    "whatsapp:test:network": "ts-node -r tsconfig-paths/register scripts/test-whatsapp-connection.ts network",
+    "whatsapp:test:full": "ts-node -r tsconfig-paths/register scripts/test-whatsapp-connection.ts full",
+    
+    "setup:complete": "yarn install && yarn db:setup:isolated && yarn db:health:isolated",
+    "setup:dev": "yarn install && yarn db:setup:isolated && yarn type-check && yarn lint",
+    
+    "postinstall": "yarn build"
+  },
   "devDependencies": {
     "@types/jest": "^30.0.0",
     "@types/node": "^24.0.3",
@@ -42,18 +82,5 @@
     "redis": "^5.5.6",
     "sqlite3": "^5.1.7",
     "uuid": "^11.1.0"
-  },
-  "scripts": {
-    "build": "tsc",
-    "start": "node dist/app.js",
-    "dev": "nodemon --exec \"ts-node -r tsconfig-paths/register src/app.ts\"",
-    "test": "jest",
-    "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage",
-    "lint": "eslint src/**/*.ts",
-    "lint:fix": "eslint src/**/*.ts --fix",
-    "format": "prettier --write src/**/*.ts",
-    "type-check": "tsc --noEmit",
-    "clean": "rm -rf dist"
   }
 }
