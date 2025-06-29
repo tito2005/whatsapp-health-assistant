@@ -1,0 +1,42 @@
+{
+  "projectName": "whatsapp-health-assistant",
+  "description": "WhatsApp Health Product Chatbot with Express.js, TypeScript, Baileys, Redis, SQLite, and Claude AI integration",
+  "techStack": [
+    "TypeScript",
+    "Express.js", 
+    "Baileys",
+    "Redis",
+    "SQLite",
+    "Claude API",
+    "Winston",
+    "Jest"
+  ],
+  "mainDirectories": [
+    "src/",
+    "tests/",
+    "dist/"
+  ],
+  "codeStyle": {
+    "language": "TypeScript",
+    "strict": true,
+    "prettier": true,
+    "eslint": true
+  },
+  "context": {
+    "projectType": "WhatsApp Bot",
+    "businessDomain": "Health Products E-commerce",
+    "currentPhase": "MVP Development",
+    "keyFeatures": [
+      "AI-powered conversation management",
+      "Order processing",
+      "Product recommendations",
+      "Customer state management"
+    ]
+  },
+  "preferences": {
+    "fileStructure": "feature-based",
+    "errorHandling": "comprehensive",
+    "logging": "winston",
+    "testing": "jest"
+  }
+}
