@@ -52,16 +52,15 @@ class WhatsAppConnectionTester {
   }
 
   private async testNetworkConnectivity(): Promise<void> {
-    const { default: fetch } = await import('node-fetch' as any) || require('axios');
+    const axios = require('axios');
     
     try {
       // Test basic internet connectivity
-      const response = await fetch('https://www.google.com', { 
-        timeout: 5000,
-        method: 'HEAD'
+      const response = await axios.head('https://www.google.com', { 
+        timeout: 5000
       });
       
-      if (!response.ok && response.status !== 200) {
+      if (response.status !== 200) {
         throw new Error(`Network test failed with status: ${response.status}`);
       }
     } catch (error) {
@@ -86,9 +85,21 @@ class WhatsAppConnectionTester {
         // Create socket with minimal config for testing
         this.socket = makeWASocket({
           auth: state,
-          logger: { 
-            level: 'silent', 
-            child: () => ({ level: 'silent' } as any)
+          logger: {
+            level: 'silent',
+            trace: () => {},
+            debug: () => {},
+            info: () => {},
+            warn: () => {},
+            error: () => {},
+            child: () => ({
+              level: 'silent',
+              trace: () => {},
+              debug: () => {},
+              info: () => {},
+              warn: () => {},
+              error: () => {}
+            } as any)
           } as any,
           browser: ['Connection Test', 'Desktop', '1.0.0'],
           syncFullHistory: false,

@@ -2,7 +2,6 @@ import { config } from '@/config/environment';
 import { log, logger } from '@/shared/logger';
 import Anthropic from '@anthropic-ai/sdk';
 import { MessageParam } from '@anthropic-ai/sdk/resources';
-;
 
 export interface ConversationContext {
   userId: string;

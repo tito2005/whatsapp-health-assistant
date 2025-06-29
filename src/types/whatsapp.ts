@@ -5,6 +5,14 @@ export interface WhatsAppMessage {
   timestamp: number;
   type: 'text' | 'image' | 'audio' | 'video' | 'document';
   isFromMe: boolean;
+  messageInfo?: {
+    isGroup: boolean;
+    participant?: string;
+    pushName?: string;
+    quotedMessage: boolean;
+    hasMedia: boolean;
+    messageType: string;
+  };
 }
 
 export interface WhatsAppContact {
