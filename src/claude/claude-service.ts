@@ -2,6 +2,8 @@ import { config } from '@/config/environment';
 import { HealthAssessment, ProductService, RecommendationContext } from '@/products/product-service';
 import { log, logger } from '@/shared/logger';
 import { ProductRecommendation } from '@/types/product';
+import { OrderCollection } from '@/types/order';
+import { OrderService } from '@/orders/order-service';
 import Anthropic from '@anthropic-ai/sdk';
 import { MessageParam } from '@anthropic-ai/sdk/resources';
 
@@ -24,6 +26,9 @@ export interface ConversationContext {
     };
     conversationSummary?: string;
     keyPoints?: string[];
+    // Order processing
+    currentOrder?: OrderCollection;
+    orderStep?: 'cart' | 'customer_info' | 'shipping' | 'confirmation';
   };
 }
 
@@ -43,6 +48,7 @@ export class ClaudeService {
   private anthropic: Anthropic;
   private baseSystemPrompt: string;
   private productService: ProductService;
+  private orderService: OrderService;
 
   constructor() {
     this.anthropic = new Anthropic({
@@ -50,8 +56,9 @@ export class ClaudeService {
     });
     
     this.productService = new ProductService();
+    this.orderService = new OrderService();
     this.baseSystemPrompt = this.loadBaseSystemPrompt();
-    log.startup('Claude service initialized with product integration');
+    log.startup('Claude service initialized with product integration and order processing');
   }
 
   private loadBaseSystemPrompt(): string {
@@ -72,9 +79,19 @@ CONVERSATION GUIDELINES:
 - Listen carefully to understand their health goals and conditions
 - Explain product benefits in context of their specific needs
 - Be helpful but not pushy - focus on health education first
-- If asked about ordering, collect: Name, Address, Phone, Products
+- If asked about ordering, guide them through the complete order process
 - Always confirm order details before finalizing
 - If no specific products match their needs, offer general health advice
+
+ORDER PROCESSING WORKFLOW:
+1. Product Selection: Help customer choose products based on their needs
+2. Customer Information: Collect Name, WhatsApp Number (active), Address
+3. Shipping Zone Detection: Determine if Tanjung Piayu, Batam Centre, or Other
+4. Shipping & Payment Options: Explain available options based on location:
+   - Tanjung Piayu: COD instant or Transfer instant
+   - Batam Centre: Transfer instant only
+   - Other areas: Batam courier (gratis) or Instant delivery (customer pays extra)
+5. Order Confirmation: Review all details before confirming
 
 HEALTH ASSESSMENT APPROACH:
 - Ask about current symptoms and their severity
@@ -375,6 +392,25 @@ Remember: You are a health consultant first, salesperson second. Your primary go
           }
           return await this.getAllProductsAsRecommendations();
         
+        case 'add_to_cart':
+          // Handle adding products to cart
+          if (userIntent.productName) {
+            const productRecommendations = await this.getSpecificProductRecommendations(userIntent.productName);
+            if (productRecommendations.length > 0 && productRecommendations[0]) {
+              this.handleAddToCart(context, productRecommendations[0]);
+            }
+            return productRecommendations;
+          }
+          return await this.getAllProductsAsRecommendations();
+        
+        case 'checkout':
+          // Handle checkout process
+          return this.handleCheckout(context);
+        
+        case 'order_info':
+          // Handle order information collection
+          return this.handleOrderInfoCollection(context, currentMessage || '');
+        
         case 'ordering':
         case 'pricing':
           // For ordering/pricing, show relevant products or all if not specific
@@ -416,6 +452,22 @@ Remember: You are a health consultant first, salesperson second. Your primary go
       prompt += this.buildMemoryContext(context.metadata);
     }
     
+    // Add order context if there's an active order
+    if (context?.metadata?.currentOrder && context.metadata.currentOrder.items.length > 0) {
+      prompt += '\n\nACTIVE ORDER CONTEXT:\n';
+      prompt += `- Customer is in ordering process (Step: ${context.metadata.orderStep || 'cart'})\n`;
+      prompt += `- Cart items: ${context.metadata.currentOrder.items.length}\n`;
+      prompt += `- Total: Rp ${context.metadata.currentOrder.totalAmount.toLocaleString('id-ID')}\n`;
+      
+      if (context.metadata.orderStep === 'customer_info') {
+        prompt += '- Currently collecting: Name, WhatsApp, Address\n';
+      } else if (context.metadata.orderStep === 'shipping') {
+        prompt += '- Currently selecting: Shipping & Payment options\n';
+      }
+      
+      prompt += 'Guide customer through the order completion process.\n\n';
+    }
+
     if (recommendations.length > 0) {
       prompt += '\n\nRELEVANT PRODUCTS:\n';
       
@@ -525,7 +577,7 @@ CRITICAL PRODUCT RECOMMENDATION RULES:
     message: string, 
     context?: ConversationContext
   ): Promise<{
-    type: 'specific_product' | 'general_catalog' | 'health_based' | 'ordering' | 'pricing' | 'consultation';
+    type: 'specific_product' | 'general_catalog' | 'health_based' | 'ordering' | 'pricing' | 'consultation' | 'add_to_cart' | 'checkout' | 'order_info';
     productName?: string;
     confidence: number;
   }> {
@@ -582,7 +634,41 @@ CRITICAL PRODUCT RECOMMENDATION RULES:
       return { type: 'general_catalog', confidence: 0.9 };
     }
     
-    // Ordering patterns
+    // Add to cart patterns
+    const addToCartPatterns = [
+      'tambah ke keranjang', 'masukkan keranjang', 'add to cart', 'ambil produk',
+      'mau ambil', 'pilih produk', 'saya mau', 'oke saya mau'
+    ];
+    
+    if (addToCartPatterns.some(pattern => lowerMessage.includes(pattern))) {
+      return {
+        type: 'add_to_cart',
+        ...(mentionedProduct && { productName: mentionedProduct }),
+        confidence: 0.9
+      };
+    }
+    
+    // Checkout patterns
+    const checkoutPatterns = [
+      'checkout', 'pesan sekarang', 'proses pesanan', 'lanjut pesan', 
+      'confirm order', 'konfirmasi pesanan', 'bayar sekarang'
+    ];
+    
+    if (checkoutPatterns.some(pattern => lowerMessage.includes(pattern))) {
+      return { type: 'checkout', confidence: 0.9 };
+    }
+    
+    // Order information patterns
+    const orderInfoPatterns = [
+      'nama saya', 'alamat saya', 'nomor saya', 'hp saya', 'whatsapp saya',
+      'transfer', 'cod', 'bayar di tempat', 'instant', 'kurir'
+    ];
+    
+    if (orderInfoPatterns.some(pattern => lowerMessage.includes(pattern))) {
+      return { type: 'order_info', confidence: 0.8 };
+    }
+    
+    // General ordering patterns
     const orderingPatterns = [
       'mau pesan', 'gimana pesan', 'cara order', 'beli', 'pemesanan', 'order',
       'mau beli', 'cara beli', 'pesan gimana'
@@ -942,6 +1028,154 @@ CRITICAL PRODUCT RECOMMENDATION RULES:
     if (recommendations.length > 0 && recommendations[0]?.product?.name) {
       const newPoint = `Recommended ${recommendations[0].product.name} for ${recommendations[0].reason}`;
       context.metadata.keyPoints = [...keyPoints, newPoint].slice(-3);
+    }
+  }
+
+  // Order Processing Methods
+  private handleAddToCart(context: ConversationContext, product: ProductRecommendation): void {
+    if (!context.metadata) {
+      context.metadata = {};
+    }
+    
+    if (!context.metadata.currentOrder) {
+      context.metadata.currentOrder = this.orderService.createNewOrder();
+    }
+    
+    context.metadata.currentOrder = this.orderService.addItemToOrder(
+      context.metadata.currentOrder, 
+      product, 
+      1
+    );
+    
+    context.metadata.orderStep = 'cart';
+    
+    logger.info('Product added to cart', {
+      userId: context.userId,
+      productName: product.product.name,
+      cartItemCount: context.metadata.currentOrder.items.length
+    });
+  }
+
+  private handleCheckout(context: ConversationContext): ProductRecommendation[] {
+    if (!context.metadata?.currentOrder || context.metadata.currentOrder.items.length === 0) {
+      // No items in cart, return empty to show consultation message
+      return [];
+    }
+    
+    context.metadata.orderStep = 'customer_info';
+    
+    // Return cart items as recommendations for display
+    return context.metadata.currentOrder.items.map(item => ({
+      product: {
+        id: item.productId,
+        name: item.productName,
+        price: item.price,
+        category: 'general_wellness' as const,
+        benefits: [],
+        description: '',
+        ingredients: [],
+        suitableFor: [],
+        dosage: '',
+        images: [],
+        inStock: true,
+        metadata: {},
+        createdAt: new Date(),
+        updatedAt: new Date()
+      },
+      relevanceScore: 1.0,
+      reason: `${item.quantity}x dalam keranjang`,
+      benefits: []
+    }));
+  }
+
+  private handleOrderInfoCollection(context: ConversationContext, message: string): ProductRecommendation[] {
+    if (!context.metadata?.currentOrder) {
+      return [];
+    }
+    
+    // Extract information from message
+    this.extractOrderInformation(context, message);
+    
+    // Return current cart items
+    return context.metadata.currentOrder.items.map(item => ({
+      product: {
+        id: item.productId,
+        name: item.productName,
+        price: item.price,
+        category: 'general_wellness' as const,
+        benefits: [],
+        description: '',
+        ingredients: [],
+        suitableFor: [],
+        dosage: '',
+        images: [],
+        inStock: true,
+        metadata: {},
+        createdAt: new Date(),
+        updatedAt: new Date()
+      },
+      relevanceScore: 1.0,
+      reason: `${item.quantity}x - Rp ${(item.price * item.quantity).toLocaleString('id-ID')}`,
+      benefits: []
+    }));
+  }
+
+  private extractOrderInformation(context: ConversationContext, message: string): void {
+    if (!context.metadata?.currentOrder) return;
+    
+    const lowerMessage = message.toLowerCase();
+    
+    // Extract name
+    const namePatterns = [
+      /nama\s*(?:saya)?\s*:?\s*([a-zA-Z\s]+)/i,
+      /saya\s+([a-zA-Z\s]+)/i,
+      /^([a-zA-Z\s]+)$/i
+    ];
+    
+    if (!context.metadata.currentOrder.customerName) {
+      for (const pattern of namePatterns) {
+        const match = message.match(pattern);
+        if (match && match[1] && match[1].trim().length > 2) {
+          context.metadata.currentOrder.customerName = match[1].trim();
+          break;
+        }
+      }
+    }
+    
+    // Extract phone number
+    const phonePattern = /(?:hp|wa|whatsapp|nomor)?\s*:?\s*((?:\+62|62|0)[\d\s-]+)/i;
+    const phoneMatch = message.match(phonePattern);
+    if (phoneMatch && phoneMatch[1]) {
+      context.metadata.currentOrder.whatsappNumber = phoneMatch[1].replace(/\s|-/g, '');
+    }
+    
+    // Extract address
+    if (lowerMessage.includes('alamat') || 
+        (lowerMessage.includes('jl') || lowerMessage.includes('jalan') || 
+         lowerMessage.includes('gang') || lowerMessage.includes('blok'))) {
+      const addressMatch = message.match(/(?:alamat\s*:?\s*)?(.*)/i);
+      if (addressMatch && addressMatch[1] && addressMatch[1].trim().length > 10) {
+        context.metadata.currentOrder.address = addressMatch[1].trim();
+        
+        // Detect shipping zone
+        context.metadata.currentOrder.shippingZone = this.orderService.detectShippingZone(
+          context.metadata.currentOrder.address
+        );
+      }
+    }
+    
+    // Extract payment method
+    if (lowerMessage.includes('cod') || lowerMessage.includes('bayar di tempat')) {
+      context.metadata.currentOrder.paymentMethod = 'cod';
+    } else if (lowerMessage.includes('transfer') || lowerMessage.includes('tf')) {
+      context.metadata.currentOrder.paymentMethod = 'transfer';
+    }
+    
+    // Extract shipping preference
+    if (lowerMessage.includes('kurir') || lowerMessage.includes('gratis')) {
+      context.metadata.currentOrder.shippingOption = 'batam_courier';
+    } else if (lowerMessage.includes('instant') || lowerMessage.includes('cepat')) {
+      context.metadata.currentOrder.shippingOption = 'instant';
     }
   }
 }

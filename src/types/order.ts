@@ -41,3 +41,39 @@ export interface Address {
   postalCode: string;
   country: string;
 }
+
+// Enhanced order types for your specific business
+export interface OrderCollection {
+  customerName?: string;
+  whatsappNumber?: string;
+  address?: string;
+  paymentMethod?: 'cod' | 'transfer';
+  shippingZone?: 'tanjung_piayu' | 'batam_centre' | 'other';
+  shippingOption?: 'batam_courier' | 'instant';
+  items: OrderCartItem[];
+  totalAmount: number;
+  shippingCost: number;
+  isComplete: boolean;
+}
+
+export interface OrderCartItem {
+  productId: string;
+  productName: string;
+  quantity: number;
+  price: number;
+}
+
+export interface ShippingZone {
+  name: string;
+  zone: 'tanjung_piayu' | 'batam_centre' | 'other';
+  paymentMethods: PaymentMethod[];
+  shippingOptions: ShippingOption[];
+}
+
+export interface ShippingOption {
+  type: 'batam_courier' | 'instant' | 'cod_instant';
+  name: string;
+  cost: number;
+  description: string;
+  estimatedDelivery: string;
+}
