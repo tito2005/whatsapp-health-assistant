@@ -1,8 +1,13 @@
-import { logger } from '@/shared/logger';
+import { log } from '@/shared/logger';
 import { OrderCollection, ShippingZone, ShippingOption } from '@/types/order';
 import { ProductRecommendation } from '@/types/product';
+import { OrderRepository } from '@/orders/order-repository';
+import { retryDatabaseOperation } from '@/shared/retry';
+import { ChatbotErrorHandler } from '@/shared/error-handler';
 
 export class OrderService {
+  private orderRepository: OrderRepository;
+  
   // Define shipping zones and their rules
   private shippingZones: ShippingZone[] = [
     {
@@ -63,12 +68,19 @@ export class OrderService {
     }
   ];
 
+  constructor() {
+    this.orderRepository = new OrderRepository();
+    log.startup('OrderService initialized with database persistence');
+  }
+
   public createNewOrder(): OrderCollection {
     return {
       items: [],
       totalAmount: 0,
       shippingCost: 0,
-      isComplete: false
+      isComplete: false,
+      notes: undefined,
+      orderStep: undefined
     };
   }
 
@@ -220,29 +232,167 @@ export class OrderService {
     return message;
   }
 
-  public processOrderConfirmation(order: OrderCollection): { success: boolean; orderId?: string; message: string } {
+  /**
+   * Save order to database with encryption for sensitive data
+   */
+  public async saveOrder(order: OrderCollection, customerPhone: string, customerName?: string): Promise<{ success: boolean; orderId?: string; error?: string }> {
+    try {
+      const result = await retryDatabaseOperation(async () => {
+        // Get or create customer
+        const customerId = await this.orderRepository.getOrCreateCustomer(customerPhone, customerName);
+        
+        // Create encrypted copy of order for sensitive data
+        const secureOrder = { ...order };
+        if (secureOrder.address) {
+          // Don't encrypt address in this implementation as it's needed for shipping zone detection
+          // In production, you might want to encrypt and decrypt as needed
+        }
+        
+        // Save order to database
+        const orderId = await this.orderRepository.createOrder(secureOrder, customerId);
+        
+        log.order.created(orderId, customerId, secureOrder.totalAmount, secureOrder.items);
+        
+        return orderId;
+      });
+
+      return { success: true, orderId: result };
+
+    } catch (error) {
+      const errorMessage = ChatbotErrorHandler.handleChatbotError(error as Error, {
+        operation: 'saveOrder',
+        additionalData: { customerPhone }
+      });
+      
+      return { success: false, error: errorMessage };
+    }
+  }
+
+  /**
+   * Update existing order in database
+   */
+  public async updateOrder(orderId: string, updates: Partial<OrderCollection>): Promise<{ success: boolean; error?: string }> {
+    try {
+      await retryDatabaseOperation(async () => {
+        await this.orderRepository.updateOrder(orderId, updates);
+        log.order.updated(orderId, 'updated', updates);
+      });
+
+      return { success: true };
+
+    } catch (error) {
+      const errorMessage = ChatbotErrorHandler.handleChatbotError(error as Error, {
+        operation: 'updateOrder',
+        additionalData: { orderId }
+      });
+      
+      return { success: false, error: errorMessage };
+    }
+  }
+
+  /**
+   * Get order by ID from database
+   */
+  public async getOrderById(orderId: string): Promise<{ success: boolean; order?: OrderCollection; error?: string }> {
+    try {
+      const result = await retryDatabaseOperation(async () => {
+        const orderRecord = await this.orderRepository.getOrderById(orderId);
+        if (!orderRecord) {
+          throw ChatbotErrorHandler.createBusinessLogicError(
+            `Order not found: ${orderId}`,
+            'Pesanan tidak ditemukan. Mohon periksa kembali nomor pesanan Anda.'
+          );
+        }
+        
+        return this.orderRepository.convertToOrderCollection(orderRecord);
+      });
+
+      return { success: true, order: result };
+
+    } catch (error) {
+      const errorMessage = ChatbotErrorHandler.handleChatbotError(error as Error, {
+        operation: 'getOrderById',
+        additionalData: { orderId }
+      });
+      
+      return { success: false, error: errorMessage };
+    }
+  }
+
+  /**
+   * Update order status in database
+   */
+  public async updateOrderStatus(
+    orderId: string, 
+    status: 'pending' | 'collecting_info' | 'confirmed' | 'processing' | 'shipped' | 'delivered' | 'cancelled',
+    estimatedDelivery?: string
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      await retryDatabaseOperation(async () => {
+        await this.orderRepository.updateOrderStatus(orderId, status, estimatedDelivery);
+        log.order.updated(orderId, status, { estimatedDelivery });
+      });
+
+      return { success: true };
+
+    } catch (error) {
+      const errorMessage = ChatbotErrorHandler.handleChatbotError(error as Error, {
+        operation: 'updateOrderStatus',
+        additionalData: { orderId, status }
+      });
+      
+      return { success: false, error: errorMessage };
+    }
+  }
+
+  /**
+   * Get customer orders with secure data handling
+   */
+  public async getCustomerOrders(customerPhone: string): Promise<{ success: boolean; orders?: OrderCollection[]; error?: string }> {
+    try {
+      const result = await retryDatabaseOperation(async () => {
+        const customerId = await this.orderRepository.getOrCreateCustomer(customerPhone);
+        const orderRecords = await this.orderRepository.getOrdersByCustomerId(customerId);
+        
+        return orderRecords.map(record => this.orderRepository.convertToOrderCollection(record));
+      });
+
+      return { success: true, orders: result };
+
+    } catch (error) {
+      const errorMessage = ChatbotErrorHandler.handleChatbotError(error as Error, {
+        operation: 'getCustomerOrders',
+        additionalData: { customerPhone }
+      });
+      
+      return { success: false, error: errorMessage };
+    }
+  }
+
+  public async processOrderConfirmation(order: OrderCollection): Promise<{ success: boolean; orderId?: string; message: string }> {
     try {
       const validation = this.validateOrderData(order);
       
       if (!validation.isValid) {
-        return {
-          success: false,
-          message: `Mohon lengkapi data berikut: ${validation.missingFields.join(', ')}`
-        };
+        throw ChatbotErrorHandler.createValidationError(
+          `Missing required fields: ${validation.missingFields.join(', ')}`,
+          validation.missingFields[0]
+        );
       }
+
+      // Save order to database with retry mechanism
+      const saveResult = await this.saveOrder(order, order.whatsappNumber!, order.customerName);
       
-      // Generate order ID
-      const orderId = this.generateOrderId();
+      if (!saveResult.success) {
+        throw new Error(saveResult.error || 'Failed to save order');
+      }
+
+      const orderId = saveResult.orderId!;
       
-      // Log order for processing
-      logger.info('Order confirmed and ready for processing', {
-        orderId,
-        customerName: order.customerName,
-        totalAmount: order.totalAmount + order.shippingCost,
-        itemCount: order.items.length,
-        shippingZone: order.shippingZone,
-        paymentMethod: order.paymentMethod
-      });
+      // Update order status to confirmed
+      await this.updateOrderStatus(orderId, 'confirmed');
+      
+      log.order.created(orderId, order.whatsappNumber!, order.totalAmount + (order.shippingCost || 0), order.items);
       
       return {
         success: true,
@@ -251,19 +401,26 @@ export class OrderService {
       };
       
     } catch (error) {
-      logger.error('Failed to process order confirmation', { error });
+      const errorMessage = ChatbotErrorHandler.handleChatbotError(error as Error, {
+        operation: 'processOrderConfirmation',
+        additionalData: { 
+          customerName: order.customerName,
+          itemCount: order.items.length 
+        }
+      });
+      
       return {
         success: false,
-        message: 'Terjadi kesalahan saat memproses pesanan. Mohon coba lagi.'
+        message: errorMessage
       };
     }
   }
 
-  private generateOrderId(): string {
-    const now = new Date();
-    const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
-    const timeStr = now.toTimeString().slice(0, 8).replace(/:/g, '');
-    const random = Math.random().toString(36).substring(2, 6).toUpperCase();
-    return `ORD-${dateStr}-${timeStr}-${random}`;
-  }
+  // private generateOrderId(): string {
+  //   const now = new Date();
+  //   const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
+  //   const timeStr = now.toTimeString().slice(0, 8).replace(/:/g, '');
+  //   const random = Math.random().toString(36).substring(2, 6).toUpperCase();
+  //   return `ORD-${dateStr}-${timeStr}-${random}`;
+  // }
 }

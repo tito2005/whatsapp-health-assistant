@@ -47,13 +47,15 @@ export interface OrderCollection {
   customerName?: string;
   whatsappNumber?: string;
   address?: string;
-  paymentMethod?: 'cod' | 'transfer';
+  paymentMethod?: 'cod' | 'bank_transfer' | 'transfer';
   shippingZone?: 'tanjung_piayu' | 'batam_centre' | 'other';
   shippingOption?: 'batam_courier' | 'instant';
   items: OrderCartItem[];
   totalAmount: number;
   shippingCost: number;
   isComplete: boolean;
+  notes: string | undefined;
+  orderStep: 'cart' | 'customer_info' | 'shipping' | 'confirmation' | undefined;
 }
 
 export interface OrderCartItem {

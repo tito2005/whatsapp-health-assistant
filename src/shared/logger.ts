@@ -1,4 +1,5 @@
 import { config } from '@/config/environment';
+import { maskForLogging } from '@/shared/encryption';
 import fs from 'fs';
 import path from 'path';
 import pino from 'pino';
@@ -6,6 +7,119 @@ import pino from 'pino';
 // Ensure logs directory exists
 const logDir = path.resolve(config.logFilePath);
 fs.mkdirSync(logDir, { recursive: true });
+
+// Sensitive field patterns for data masking
+const SENSITIVE_FIELDS = [
+  'password', 'pwd', 'secret', 'token', 'key', 'api_key', 'apikey',
+  'authorization', 'auth', 'credential', 'session', 'cookie',
+  'phone', 'phoneNumber', 'whatsappNumber', 'mobile', 'email',
+  'address', 'location', 'jid', 'customerId', 'orderId',
+  'name', 'fullName', 'firstName', 'lastName', 'customerName'
+];
+
+const SENSITIVE_PATTERNS = [
+  /\b\d{10,15}\b/g, // Phone numbers
+  /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g, // Email addresses
+  /\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b/g, // Credit card-like numbers
+  /\bORD-\d{8}-\d{6}-[A-Z0-9]{4}\b/g, // Order IDs
+  /\bCUST-\d{8}-[A-Z0-9]{6}\b/g, // Customer IDs
+  /\b62\d{9,12}\b/g, // Indonesian phone numbers
+];
+
+/**
+ * Recursively mask sensitive data in objects
+ */
+function maskSensitiveData(obj: any, depth: number = 0): any {
+  // Prevent infinite recursion
+  if (depth > 10) return '[Max Depth Reached]';
+  
+  if (obj === null || obj === undefined) return obj;
+  
+  // Handle primitive types
+  if (typeof obj === 'string') {
+    return maskStringContent(obj);
+  }
+  
+  if (typeof obj === 'number' || typeof obj === 'boolean') {
+    return obj;
+  }
+  
+  // Handle arrays
+  if (Array.isArray(obj)) {
+    return obj.map(item => maskSensitiveData(item, depth + 1));
+  }
+  
+  // Handle objects
+  if (typeof obj === 'object') {
+    const masked: any = {};
+    
+    for (const [key, value] of Object.entries(obj)) {
+      const lowerKey = key.toLowerCase();
+      
+      // Check if this field should be masked
+      if (SENSITIVE_FIELDS.some(field => lowerKey.includes(field))) {
+        if (typeof value === 'string') {
+          masked[key] = maskForLogging(value);
+        } else {
+          masked[key] = '[MASKED]';
+        }
+      } else {
+        masked[key] = maskSensitiveData(value, depth + 1);
+      }
+    }
+    
+    return masked;
+  }
+  
+  return obj;
+}
+
+/**
+ * Mask sensitive patterns in string content
+ */
+function maskStringContent(str: string): string {
+  if (!str || typeof str !== 'string') return str;
+  
+  let maskedStr = str;
+  
+  // Apply pattern-based masking
+  SENSITIVE_PATTERNS.forEach(pattern => {
+    maskedStr = maskedStr.replace(pattern, (match) => {
+      if (match.length <= 4) return '*'.repeat(4);
+      return match.substring(0, 2) + '*'.repeat(Math.max(match.length - 4, 1)) + match.substring(match.length - 2);
+    });
+  });
+  
+  return maskedStr;
+}
+
+/**
+ * Custom serializer for secure logging
+ */
+const secureSerializer = {
+  ...pino.stdSerializers,
+  err: (err: any) => {
+    const serialized = pino.stdSerializers.err(err);
+    return maskSensitiveData(serialized);
+  },
+  error: (err: any) => {
+    const serialized = pino.stdSerializers.err(err);
+    return maskSensitiveData(serialized);
+  },
+  req: (req: any) => {
+    const serialized = pino.stdSerializers.req(req);
+    return maskSensitiveData(serialized);
+  },
+  res: (res: any) => {
+    const serialized = pino.stdSerializers.res(res);
+    return maskSensitiveData(serialized);
+  },
+  // Custom serializers for common objects
+  user: (user: any) => maskSensitiveData(user),
+  customer: (customer: any) => maskSensitiveData(customer),
+  order: (order: any) => maskSensitiveData(order),
+  message: (message: any) => maskSensitiveData(message)
+};
 
 // Create logger based on environment
 const createLogger = (): pino.Logger => {
@@ -55,19 +169,7 @@ const createLogger = (): pino.Logger => {
     formatters: {
       level: (label) => ({ level: label.toUpperCase() }),
     },
-    serializers: {
-      err: pino.stdSerializers.err,
-      error: pino.stdSerializers.err,
-      req: (req) => ({
-        method: req.method,
-        url: req.url,
-        path: req.path,
-        parameters: req.parameters,
-      }),
-      res: (res) => ({
-        statusCode: res.statusCode,
-      }),
-    },
+    serializers: secureSerializer,
   }, pino.multistream(streams));
 };
 
@@ -189,19 +291,29 @@ export const log = {
   shutdown: (message: string, meta?: any) => 
     logger.info({ component: 'system', phase: 'shutdown', ...meta }, message),
   
-  // WhatsApp events
+  // WhatsApp events with secure logging
   whatsapp: {
     connected: (jid: string) => 
-      logger.info({ component: 'whatsapp', event: 'connected', jid }, 'WhatsApp connected'),
+      logger.info({ component: 'whatsapp', event: 'connected', jid: maskForLogging(jid, 'general') }, 'WhatsApp connected'),
     
     disconnected: (reason?: string) => 
       logger.warn({ component: 'whatsapp', event: 'disconnected', reason }, 'WhatsApp disconnected'),
     
-    message: (from: string, messageId: string, type: string) =>
-      logger.info({ component: 'whatsapp', event: 'message', from, messageId, type }, 'Message received'),
+    message: (from: string, messageId: string, type: string, messageContent?: string) =>
+      logger.info({ 
+        component: 'whatsapp', 
+        event: 'message', 
+        from: maskForLogging(from, 'phone'), 
+        messageId: maskForLogging(messageId, 'general'),
+        type,
+        contentLength: messageContent?.length || 0
+      }, 'Message received'),
     
     qr: (attempt: number) =>
       logger.info({ component: 'whatsapp', event: 'qr', attempt }, 'QR code generated'),
+
+    error: (error: any, context?: string) =>
+      logger.error({ component: 'whatsapp', context, err: error }, 'WhatsApp error occurred'),
   },
   
   // API calls
@@ -216,13 +328,94 @@ export const log = {
       logger.error({ component: 'api', service, err: error }, 'API error'),
   },
   
-  // Business events
+  // Business events with secure logging
   order: {
-    created: (orderId: string, customerId: string, total: number) =>
-      logger.info({ component: 'order', event: 'created', orderId, customerId, total }, 'Order created'),
+    created: (orderId: string, customerId: string, total: number, items?: any[]) =>
+      logger.info({ 
+        component: 'order', 
+        event: 'created', 
+        orderId: maskForLogging(orderId, 'general'), 
+        customerId: maskForLogging(customerId, 'general'), 
+        total,
+        itemCount: items?.length || 0
+      }, 'Order created'),
     
-    error: (orderId: string, error: any) =>
-      logger.error({ component: 'order', event: 'error', orderId, err: error }, 'Order error'),
+    updated: (orderId: string, status: string, updates?: any) =>
+      logger.info({ 
+        component: 'order', 
+        event: 'updated', 
+        orderId: maskForLogging(orderId, 'general'), 
+        status,
+        updateFields: updates ? Object.keys(updates) : []
+      }, 'Order updated'),
+    
+    error: (orderId: string, error: any, context?: string) =>
+      logger.error({ 
+        component: 'order', 
+        event: 'error', 
+        orderId: maskForLogging(orderId, 'general'), 
+        context,
+        err: error 
+      }, 'Order error'),
+  },
+
+  // Customer events with secure logging
+  customer: {
+    created: (customerId: string, phone: string) =>
+      logger.info({ 
+        component: 'customer', 
+        event: 'created', 
+        customerId: maskForLogging(customerId, 'general'),
+        phone: maskForLogging(phone, 'phone')
+      }, 'Customer created'),
+    
+    updated: (customerId: string, updates: any) =>
+      logger.info({ 
+        component: 'customer', 
+        event: 'updated', 
+        customerId: maskForLogging(customerId, 'general'),
+        updateFields: Object.keys(updates)
+      }, 'Customer updated'),
+    
+    interaction: (customerId: string, type: string, metadata?: any) =>
+      logger.info({ 
+        component: 'customer', 
+        event: 'interaction', 
+        customerId: maskForLogging(customerId, 'general'),
+        interactionType: type,
+        metadata: maskSensitiveData(metadata)
+      }, 'Customer interaction'),
+  },
+
+  // Claude API events with secure logging
+  claude: {
+    request: (userId: string, promptLength: number, model: string) =>
+      logger.info({ 
+        component: 'claude', 
+        event: 'request', 
+        userId: maskForLogging(userId, 'general'),
+        promptLength,
+        model
+      }, 'Claude API request'),
+    
+    response: (userId: string, responseLength: number, tokensUsed?: number, duration?: number) =>
+      logger.info({ 
+        component: 'claude', 
+        event: 'response', 
+        userId: maskForLogging(userId, 'general'),
+        responseLength,
+        tokensUsed,
+        duration
+      }, 'Claude API response'),
+    
+    error: (userId: string, error: any, retryAttempt?: number) =>
+      logger.error({ 
+        component: 'claude', 
+        event: 'error', 
+        userId: maskForLogging(userId, 'general'),
+        retryAttempt,
+        err: error 
+      }, 'Claude API error'),
   },
   
   // Performance metrics
