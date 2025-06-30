@@ -69,7 +69,6 @@ export class WhatsAppController {
           <html>
             <head>
               <title>WhatsApp Connected</title>
-              <meta http-equiv="refresh" content="5">
               <style>
                 body {
                   font-family: Arial, sans-serif;
@@ -93,12 +92,22 @@ export class WhatsAppController {
                   margin-top: 1rem;
                 }
               </style>
+              <script>
+                // Stop any further auto-refresh since we're connected
+                if (window.location.search.includes('refresh')) {
+                  // Clear the refresh parameter if it exists
+                  window.history.replaceState({}, document.title, window.location.pathname);
+                }
+              </script>
             </head>
             <body>
               <div class="container">
                 <h1>WhatsApp Connected! ✅</h1>
                 <p class="status">Your WhatsApp is successfully connected.</p>
                 <p>You can close this window.</p>
+                <p style="font-size: 0.9rem; color: #666; margin-top: 2rem;">
+                  Connection established at ${new Date().toLocaleString()}
+                </p>
               </div>
             </body>
           </html>

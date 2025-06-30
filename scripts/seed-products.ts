@@ -4,9 +4,9 @@ import { Product } from '@/types/product';
 
 const healthProducts: Omit<Product, 'id' | 'createdAt' | 'updatedAt'>[] = [
   {
-    name: 'HOTTO PURTO OAT',
-    description: 'Minuman kesehatan tinggi serat yang kaya akan nutrisi dan rendah kalori. Diformulasikan dengan ubi ungu, oat premium Swedia, dan 15 jenis multigrain untuk mendukung kesehatan optimal.',
-    price: 295000,
+    name: 'HOTTO PURTO',
+    description: 'Minuman kesehatan tinggi serat yang kaya akan nutrisi dan rendah kalori. Diformulasikan dengan ubi ungu, oat premium Swedia, dan 15 jenis multigrain untuk mendukung kesehatan optimal. Tersedia dalam kemasan pouch (16 sachets) dan pilihan sachets satuan.',
+    price: 295000, // 1 pouch (16 sachets)
     discountPrice: 570000, // Bundle 2 pouch price
     category: 'general_wellness',
     benefits: [
@@ -37,7 +37,7 @@ const healthProducts: Omit<Product, 'id' | 'createdAt' | 'updatedAt'>[] = [
       'Pasien pasca stroke',
       'Penderita hipertensi'
     ],
-    dosage: '1x sehari untuk maintenance kesehatan, 2-3x sehari untuk mengatasi masalah kesehatan spesifik',
+    dosage: '1x sehari untuk maintenance kesehatan, 2-3x sehari untuk mengatasi masalah kesehatan spesifik. 16 sachet per pouch untuk pemakaian 16 hari (1x sehari) atau 8 hari (2x sehari)',
     warnings: [
       'Minum air putih yang cukup setelah konsumsi (1-2 gelas)',
       'Konsultasi dokter jika memiliki kondisi medis serius'
@@ -58,14 +58,28 @@ const healthProducts: Omit<Product, 'id' | 'createdAt' | 'updatedAt'>[] = [
       bundleDiscount: 20000,
       calories: 120,
       fiber: '15g',
-      protein: '5g'
+      protein: '5g',
+      pricingOptions: {
+        pouch: {
+          '1 pouch (16 sachets)': 295000,
+          '2 pouch (32 sachets)': 570000
+        },
+        sachets: {
+          '3 sachets': 75000,
+          '5 sachets': 113000,
+          '7 sachets': 161000,
+          '9 sachets': 198000
+        },
+        freeShipping: ['1 pouch', '2 pouch', '7 sachets', '9 sachets']
+      }
     }
   },
 
   {
-    name: 'HOTTO MAME PROTEIN',
-    description: 'Protein tinggi dengan edamame dan isolat protein whey untuk mendukung gaya hidup aktif dan memenuhi kebutuhan protein harian dengan rasa yang lezat.',
-    price: 180000,
+    name: 'HOTTO MAME',
+    description: 'Protein tinggi dengan edamame dan isolat protein whey untuk mendukung gaya hidup aktif dan memenuhi kebutuhan protein harian dengan rasa yang lezat. Tersedia dalam kemasan pouch (12 sachets) dan pilihan sachets satuan.',
+    price: 295000, // 1 pouch (12 sachets) - same price as HOTTO PURTO
+    discountPrice: 570000, // Bundle 2 pouch price
     category: 'general_wellness',
     benefits: [
       'Tinggi protein berkualitas (9g per serving, 15% kebutuhan harian)',
@@ -92,7 +106,7 @@ const healthProducts: Omit<Product, 'id' | 'createdAt' | 'updatedAt'>[] = [
       'Program diet protein',
       'Vegetarian yang butuh protein'
     ],
-    dosage: '1-2 serving per hari, sebaiknya sebelum atau sesudah aktivitas fisik',
+    dosage: '1-2 serving per hari, sebaiknya sebelum atau sesudah aktivitas fisik. 12 sachet per pouch untuk pemakaian 12 hari (1x sehari) atau 6 hari (2x sehari)',
     images: ['hotto-mame-protein.jpg'],
     inStock: true,
     metadata: {
@@ -104,7 +118,20 @@ const healthProducts: Omit<Product, 'id' | 'createdAt' | 'updatedAt'>[] = [
       ],
       protein: '9g',
       fiber: '3g',
-      calories: 120
+      calories: 120,
+      pricingOptions: {
+        pouch: {
+          '1 pouch (12 sachets)': 295000,
+          '2 pouch (24 sachets)': 570000
+        },
+        sachets: {
+          '3 sachets': 90000,
+          '5 sachets': 150000,
+          '7 sachets': 210000,
+          '9 sachets': 270000
+        },
+        freeShipping: ['1 pouch', '2 pouch', '7 sachets', '9 sachets']
+      }
     }
   },
 

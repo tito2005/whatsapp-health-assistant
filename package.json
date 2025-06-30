@@ -37,6 +37,8 @@
     "products:summary": "ts-node -r tsconfig-paths/register scripts/seed-products.ts summary",
     
     "whatsapp:test": "ts-node -r tsconfig-paths/register scripts/test-whatsapp-connection.ts",
+    "session:info": "ts-node -r tsconfig-paths/register scripts/session-manager.ts info",
+    "session:clear": "ts-node -r tsconfig-paths/register scripts/session-manager.ts clear",
     "whatsapp:test:network": "ts-node -r tsconfig-paths/register scripts/test-whatsapp-connection.ts network",
     "whatsapp:test:full": "ts-node -r tsconfig-paths/register scripts/test-whatsapp-connection.ts full",
     

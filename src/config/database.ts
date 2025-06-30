@@ -7,9 +7,9 @@ import { promisify } from 'util';
 
 export interface DatabaseConnection {
   db: Database;
-  run: (sql: string, params?: any[]) => Promise<any>;
-  get: (sql: string, params?: any[]) => Promise<any>;
-  all: (sql: string, params?: any[]) => Promise<any[]>;
+  run: (_sql: string, _params?: any[]) => Promise<any>;
+  get: (_sql: string, _params?: any[]) => Promise<any>;
+  all: (_sql: string, _params?: any[]) => Promise<any[]>;
   close: () => Promise<void>;
 }
 
@@ -236,9 +236,9 @@ class DatabaseManager {
       throw new Error('Database not connected. Call waitForInitialization() first.');
     }
 
-    const run: (sql: string, params?: any[]) => Promise<any> = promisify(this.db.run.bind(this.db));
-    const get: (sql: string, params?: any[]) => Promise<any> = promisify(this.db.get.bind(this.db));
-    const all: (sql: string, params?: any[]) => Promise<any[]> = promisify(this.db.all.bind(this.db));
+    const run: (_sql: string, _params?: any[]) => Promise<any> = promisify(this.db.run.bind(this.db));
+    const get: (_sql: string, _params?: any[]) => Promise<any> = promisify(this.db.get.bind(this.db));
+    const all: (_sql: string, _params?: any[]) => Promise<any[]> = promisify(this.db.all.bind(this.db));
     const close: () => Promise<void> = promisify(this.db.close.bind(this.db));
 
     return {

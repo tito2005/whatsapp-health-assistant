@@ -11,6 +11,7 @@ import {
   WASocket
 } from '@whiskeysockets/baileys';
 import fs from 'fs/promises';
+import fsSync from 'fs';
 import path from 'path';
 import qrcode from 'qrcode';
 
@@ -21,7 +22,7 @@ export class BaileysClient implements WhatsAppClient {
   private sessionPath: string;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 10;
-  private messageHandler?: (message: any) => Promise<void>;
+  private messageHandler?: (_message: any) => Promise<void>;
   private isInitializing = false;
   private connectionState: 'disconnected' | 'connecting' | 'connected' | 'qr_required' = 'disconnected';
   private reconnectTimeout: NodeJS.Timeout | null = null;
@@ -31,7 +32,40 @@ export class BaileysClient implements WhatsAppClient {
   private maxReconnectDelay = 300000; // 5 minutes
 
   constructor() {
-    this.sessionPath = path.join(process.cwd(), 'session', config.whatsappSessionId);
+    this.sessionPath = this.resolveSessionPath();
+  }
+
+  private resolveSessionPath(): string {
+    const sessionDir = path.join(process.cwd(), 'session');
+    
+    try {
+      // Check if session directory exists
+      const sessionDirs = fsSync.readdirSync(sessionDir, { withFileTypes: true })
+        .filter((dirent: any) => dirent.isDirectory())
+        .map((dirent: any) => dirent.name);
+      
+      // Look for existing session directory (prioritize ones with timestamp)
+      const existingSession = sessionDirs.find((dir: string) => 
+        dir.includes('arverid') || dir.includes('chatbot') || dir.includes('session')
+      );
+      
+      if (existingSession) {
+        logger.info('Found existing session directory', { sessionDir: existingSession });
+        return path.join(sessionDir, existingSession);
+      }
+      
+      // If no existing session, create new one with timestamp
+      const timestamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..+/, '').slice(0, 14);
+      const newSessionName = `${config.whatsappSessionId}_${timestamp}`;
+      
+      logger.info('Creating new session directory', { sessionDir: newSessionName });
+      return path.join(sessionDir, newSessionName);
+      
+    } catch (error) {
+      // Fallback to default if directory doesn't exist
+      logger.warn('Session directory not found, using default', { error: error instanceof Error ? error.message : 'Unknown error' });
+      return path.join(sessionDir, config.whatsappSessionId);
+    }
   }
 
   public async initialize(): Promise<void> {
@@ -47,7 +81,8 @@ export class BaileysClient implements WhatsAppClient {
       
       logger.info('Initializing Baileys WhatsApp client', {
         attempt: this.reconnectAttempts + 1,
-        maxAttempts: this.maxReconnectAttempts
+        maxAttempts: this.maxReconnectAttempts,
+        sessionPath: this.sessionPath
       });
 
       // Clear existing timeouts
@@ -55,6 +90,9 @@ export class BaileysClient implements WhatsAppClient {
 
       // Ensure session directory exists
       await this.ensureSessionDirectory();
+
+      // Validate existing session before loading
+      await this.validateSession();
 
       // Load authentication state
       const { state, saveCreds } = await useMultiFileAuthState(this.sessionPath);
@@ -73,11 +111,14 @@ export class BaileysClient implements WhatsAppClient {
         connectTimeoutMs: 60000,        // 1 minute
         defaultQueryTimeoutMs: 60000,   // 1 minute
         qrTimeout: config.whatsappQrTimeout,
-        // Reduce message sync load
+        // Reduce message sync load and errors
         getMessage: async (_key) => {
-          // Return undefined to avoid message sync issues
+          // Return undefined to avoid message sync issues and receipt errors
           return undefined;
         },
+        // Reduce app state sync to minimize errors
+        shouldSyncHistoryMessage: () => false,
+        emitOwnEvents: false,
         // Improve connection stability
         shouldIgnoreJid: (jid: string) => {
           // Ignore broadcast and status updates
@@ -171,6 +212,44 @@ export class BaileysClient implements WhatsAppClient {
     }
   }
 
+  private async validateSession(): Promise<void> {
+    try {
+      const credsPath = path.join(this.sessionPath, 'creds.json');
+      
+      // Check if credentials file exists
+      try {
+        await fs.access(credsPath);
+        const stats = await fs.stat(credsPath);
+        const ageInHours = (Date.now() - stats.mtime.getTime()) / (1000 * 60 * 60);
+        
+        logger.info('Session validation', {
+          credsExists: true,
+          credsAge: `${ageInHours.toFixed(1)} hours`,
+          credsPath
+        });
+        
+        // If session is older than 7 days, it might be stale
+        if (ageInHours > 24 * 7) {
+          logger.warn('Session is older than 7 days, might need refresh');
+        }
+        
+        // Read and validate credentials structure
+        const credsContent = await fs.readFile(credsPath, 'utf8');
+        const creds = JSON.parse(credsContent);
+        
+        if (!creds.me || !creds.me.id) {
+          logger.warn('Invalid credentials structure, clearing session');
+          await this.clearSession();
+        }
+        
+      } catch {
+        logger.info('No existing session found, will create new one');
+      }
+    } catch (error) {
+      logger.warn('Session validation failed', { error: error instanceof Error ? error.message : 'Unknown error' });
+    }
+  }
+
   private setupEventHandlers(saveCreds: () => Promise<void>): void {
     if (!this.socket) return;
 
@@ -254,24 +333,44 @@ private async handleConnectionUpdate(update: Partial<ConnectionState>): Promise<
     // Handle specific disconnect reasons
     switch (disconnectReason) {
       case DisconnectReason.badSession:
-        logger.warn('Bad session detected, clearing session data');
+        logger.warn('Bad session detected, clearing session data', { disconnectReason });
         await this.clearSession();
+        break;
+      case DisconnectReason.restartRequired:
+        logger.info('Restart required after pairing, will reconnect without clearing session', { disconnectReason });
+        // Don't clear session - this is normal after successful pairing
         break;
       case DisconnectReason.connectionClosed:
       case DisconnectReason.connectionLost:
       case DisconnectReason.timedOut:
         // These are recoverable, attempt reconnect
+        logger.info('Recoverable disconnect, will attempt reconnection', { disconnectReason });
         break;
       case DisconnectReason.loggedOut:
-        logger.info('Logged out, stopping reconnection attempts');
+        logger.info('Logged out, clearing session and stopping reconnection attempts');
+        await this.clearSession();
         this.reconnectAttempts = 0;
         return;
+      case 401: // Unauthorized - common for expired sessions
+        logger.warn('Session unauthorized (expired), clearing session data');
+        await this.clearSession();
+        break;
+      case 515: // Stream error after pairing - normal behavior
+        logger.info('Stream error after pairing (normal), will reconnect without clearing session', { disconnectReason });
+        // Don't clear session - this is expected after successful pairing
+        break;
       default:
-        logger.warn('Unknown disconnect reason', { disconnectReason });
+        logger.warn('Unknown disconnect reason, clearing session as precaution', { disconnectReason });
+        // If we get too many unknown disconnects, clear session
+        if (this.reconnectAttempts > 2) {
+          await this.clearSession();
+        }
     }
 
     if (shouldReconnect && this.reconnectAttempts < this.maxReconnectAttempts) {
-      this.scheduleReconnect();
+      // Use shorter delay for code 515 (normal after pairing)
+      const isNormalRestartAfterPairing = disconnectReason === 515 || disconnectReason === DisconnectReason.restartRequired;
+      this.scheduleReconnect(isNormalRestartAfterPairing ? 2000 : undefined); // 2 seconds for normal restart
     } else {
       logger.error('Max reconnection attempts reached or logged out');
       this.reconnectAttempts = 0;
@@ -328,7 +427,7 @@ private async handleConnectionUpdate(update: Partial<ConnectionState>): Promise<
       // Handle read receipts, delivery confirmations, etc.
     }
   }
-  public setMessageHandler(handler: (message: any) => Promise<void>): void {
+  public setMessageHandler(handler: (_message: any) => Promise<void>): void {
     this.messageHandler = handler;
   }
 
@@ -398,16 +497,23 @@ private async handleConnectionUpdate(update: Partial<ConnectionState>): Promise<
     }
   }
 
-  private scheduleReconnect(): void {
+  private scheduleReconnect(customDelay?: number): void {
     this.reconnectAttempts++;
     
-    // Exponential backoff with jitter
-    const baseDelay = Math.min(
-      this.minReconnectDelay * Math.pow(2, this.reconnectAttempts - 1),
-      this.maxReconnectDelay
-    );
-    const jitter = Math.random() * 0.1 * baseDelay;
-    const delay = baseDelay + jitter;
+    let delay: number;
+    
+    if (customDelay) {
+      // Use custom delay (e.g., for normal restart after pairing)
+      delay = customDelay;
+    } else {
+      // Exponential backoff with jitter
+      const baseDelay = Math.min(
+        this.minReconnectDelay * Math.pow(2, this.reconnectAttempts - 1),
+        this.maxReconnectDelay
+      );
+      const jitter = Math.random() * 0.1 * baseDelay;
+      delay = baseDelay + jitter;
+    }
     
     logger.info(`Scheduling reconnect attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts} in ${delay}ms`);
     

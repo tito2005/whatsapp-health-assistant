@@ -77,13 +77,13 @@ export const logger = createLogger();
 // Baileys-compatible logger interface
 interface BaileysLogger {
   level: string;
-  info: (message: string, ...args: any[]) => void;
-  error: (message: string, ...args: any[]) => void;
-  warn: (message: string, ...args: any[]) => void;
-  debug: (message: string, ...args: any[]) => void;
-  trace: (message: string, ...args: any[]) => void;
-  fatal: (message: string, ...args: any[]) => void;
-  child: (bindings: any) => BaileysLogger;
+  info: (_message: string, ..._args: any[]) => void;
+  error: (_message: string, ..._args: any[]) => void;
+  warn: (_message: string, ..._args: any[]) => void;
+  debug: (_message: string, ..._args: any[]) => void;
+  trace: (_message: string, ..._args: any[]) => void;
+  fatal: (_message: string, ..._args: any[]) => void;
+  child: (_bindings: any) => BaileysLogger;
 }
 
 export const createBaileysLogger = (level: pino.Level = 'error'): BaileysLogger => {

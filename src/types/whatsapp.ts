@@ -23,7 +23,7 @@ export interface WhatsAppContact {
 }
 
 export interface WhatsAppClient {
-  sendMessage: (to: string, message: string) => Promise<void>;
+  sendMessage: (_to: string, _message: string) => Promise<void>;
   isConnected: () => boolean;
   getQRCode: () => Promise<string | null>;
   disconnect: () => Promise<void>;
