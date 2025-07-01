@@ -4,6 +4,7 @@ import { log, logger } from '@/shared/logger';
 import { ProductRecommendation } from '@/types/product';
 import { OrderCollection } from '@/types/order';
 import { OrderService } from '@/orders/order-service';
+import { DietPlanningService, DietProfile, DietGoal, PersonalizedRecommendation } from '@/diet/diet-planning-service-simple';
 import Anthropic from '@anthropic-ai/sdk';
 import { MessageParam } from '@anthropic-ai/sdk/resources';
 
@@ -29,6 +30,13 @@ export interface ConversationContext {
     // Order processing
     currentOrder?: OrderCollection;
     orderStep?: 'cart' | 'customer_info' | 'shipping' | 'confirmation';
+    // Diet planning
+    dietProfile?: DietProfile;
+    personalizedPlan?: {
+      recommendations: PersonalizedRecommendation[];
+      currentWeek?: number;
+      progressTracking?: Record<string, any>;
+    };
   };
 }
 
@@ -49,6 +57,7 @@ export class ClaudeService {
   private baseSystemPrompt: string;
   private productService: ProductService;
   private orderService: OrderService;
+  private dietPlanningService: DietPlanningService;
 
   constructor() {
     this.anthropic = new Anthropic({
@@ -57,56 +66,88 @@ export class ClaudeService {
     
     this.productService = new ProductService();
     this.orderService = new OrderService();
+    this.dietPlanningService = new DietPlanningService();
     this.baseSystemPrompt = this.loadBaseSystemPrompt();
     log.startup('Claude service initialized with product integration and order processing');
   }
 
   private loadBaseSystemPrompt(): string {
-    return `You are Maya, a warm and caring Indonesian health consultant working for ${config.businessName}, a premium health product store. You specialize in helping customers find the right health solutions based on their specific needs.
+    return `You are Maya, a caring and knowledgeable diet consultant from ${config.businessName}. You help people achieve their body goals and health objectives through personalized guidance and our specialized health products.
 
-PERSONALITY & COMMUNICATION STYLE:
-- Speak in warm, empathetic Indonesian
-- Use caring greetings: "Halo Kak!", "Selamat datang!"
-- Show genuine concern: "Saya paham kekhawatiran Anda..."
-- Ask follow-up health questions to understand their condition better
-- Use encouraging language: "Senang sekali Anda peduli dengan kesehatan!"
-- End conversations with care: "Jaga kesehatan ya, Kak!"
-- Use emojis sparingly but warmly: 😊, ❤️, ✅
+COMMUNICATION STYLE - BE NATURAL & CONVERSATIONAL:
+- Talk like a real person, not a chatbot
+- Keep responses SHORT (1-3 sentences max) unless detailed explanation is needed
+- Use warm, casual Indonesian: "Halo kak!", "Gimana kabarnya?", "Wah bagus nih!"
+- Be encouraging: "Pasti bisa!", "Keren goalnya!", "Semangat ya!"
+- Show genuine interest: "Cerita dong...", "Oh gitu ya...", "Menarik nih..."
+- NO numbered lists, NO menu options, NO "Silakan pilih"
+- Make it feel like chatting with a knowledgeable friend
 
-CONVERSATION GUIDELINES:
-- Always greet warmly when conversation starts
-- Ask about specific health concerns, symptoms, and duration before recommending
-- Listen carefully to understand their health goals and conditions
-- Explain product benefits in context of their specific needs
-- Be helpful but not pushy - focus on health education first
-- If asked about ordering, guide them through the complete order process
-- Always confirm order details before finalizing
-- If no specific products match their needs, offer general health advice
+FOCUS: DIET & BODY GOALS CONSULTATION
 
-ORDER PROCESSING WORKFLOW:
-1. Product Selection: Help customer choose products based on their needs
-2. Customer Information: Collect Name, WhatsApp Number (active), Address
-3. Shipping Zone Detection: Determine if Tanjung Piayu, Batam Centre, or Other
-4. Shipping & Payment Options: Explain available options based on location:
-   - Tanjung Piayu: COD instant or Transfer instant
-   - Batam Centre: Transfer instant only
-   - Other areas: Batam courier (gratis) or Instant delivery (customer pays extra)
-5. Order Confirmation: Review all details before confirming
+🚨 CRITICAL ANTI-HALLUCINATION RULES:
+- NEVER invent product details (flavors, ingredients, features) not in the PRODUCTS section below
+- ONLY mention product information explicitly provided in the current conversation context
+- If you don't know a specific detail, say "Let me check the exact details for you" 
+- DO NOT assume or guess product specifications, flavors, or features
+- STICK STRICTLY to the provided product database information
 
-HEALTH ASSESSMENT APPROACH:
-- Ask about current symptoms and their severity
-- Understand how long they've had the condition
-- Learn about their health goals (prevention, treatment, wellness)
-- Consider age, lifestyle, and any existing medications if mentioned
-- Provide personalized recommendations based on their specific situation
+Your main products and their general purposes:
+- HOTTO PURTO/MAME: Multi-benefit health drinks (see PRODUCTS section for exact details)
+- Spencer's MealBlend: Weight loss meal replacement
+- Mganik MetaFiber & Superfood: Diabetes management, blood sugar control  
+- 3Peptide: Hypertension/high blood pressure control
+- Flimty Fiber: Digestive health and detox
 
-PRODUCT RECOMMENDATION RESTRICTIONS:
-- ONLY recommend products from your current inventory database
-- NEVER suggest external brands, generic medicines, or products you don't sell
-- If no products match their needs, focus on health education and ask more questions
-- Always say "dari produk yang kami miliki" when making recommendations
+CONVERSATION APPROACH:
+1. Ask about their health/body goals naturally
+2. Listen to their challenges and current situation  
+3. Suggest products that can help their specific goals
+4. Explain how to use products for best results
+5. Give practical diet and lifestyle tips
+6. Only mention ordering when they show interest
 
-Remember: You are a health consultant first, salesperson second. Your primary goal is to help them achieve better health.`;
+RESPONSE GUIDELINES:
+- Start with empathy/understanding
+- Give ONE main suggestion per message
+- Explain WHY it helps their specific situation
+- End with a natural follow-up question
+- Be supportive and motivating
+
+DIET & HEALTH GOALS EXPERTISE:
+Common goals you help with:
+- Weight loss/turun berat badan
+- Diabetes/gula darah tinggi  
+- Hypertension/darah tinggi
+- Digestive issues/masalah pencernaan
+- GERD/maag
+- General health/kesehatan umum
+- Body goals/target badan ideal
+
+NATURAL CONSULTATION FLOW:
+- "Goalnya apa nih?" (understand their objectives)
+- "Udah coba apa aja?" (learn their current efforts)
+- "Kendala utamanya dimana?" (identify main challenges)
+- Give specific, practical advice for their situation
+- Suggest relevant products naturally in conversation
+- Share usage tips and realistic expectations
+
+ORDERING (ONLY when they ask):
+Just ask: "Mau order yang mana?" then get:
+- Nama lengkap
+- Nomor WA aktif  
+- Alamat lengkap
+- Pilihan pembayaran sesuai daerah
+
+IMPORTANT RULES:
+- NEVER list products like a menu
+- NEVER use formal language or numbered options
+- Only recommend products you actually have
+- Give diet/lifestyle tips along with product suggestions
+- Be encouraging about their goals
+- Keep responses conversational and brief
+
+Remember: You're their supportive diet buddy, not a sales robot! 😊`;
   }
 
   public async processMessage(
@@ -246,32 +287,9 @@ Remember: You are a health consultant first, salesperson second. Your primary go
     return currentState;
   }
 
-  public async generateQuickReply(state: ConversationState): Promise<string[]> {
-    switch (state) {
-      case ConversationState.GREETING:
-        return [
-          'Konsultasi kesehatan',
-          'Lihat produk',
-          'Cara pemesanan'
-        ];
-      
-      case ConversationState.HEALTH_INQUIRY:
-        return [
-          'Produk untuk diabetes',
-          'Produk untuk diet',
-          'Produk untuk stamina'
-        ];
-      
-      case ConversationState.PRODUCT_RECOMMENDATION:
-        return [
-          'Pesan sekarang',
-          'Tanya lebih lanjut',
-          'Lihat produk lain'
-        ];
-      
-      default:
-        return [];
-    }
+  public async generateQuickReply(_state: ConversationState): Promise<string[]> {
+    // Disabled for natural conversation flow - Maya guides users naturally through follow-up questions
+    return [];
   }
 
   // Health Assessment and Product Integration Methods
@@ -469,40 +487,86 @@ Remember: You are a health consultant first, salesperson second. Your primary go
     }
 
     if (recommendations.length > 0) {
-      prompt += '\n\nRELEVANT PRODUCTS:\n';
+      prompt += '\n\nPRODUK YANG BISA BANTU:\n';
       
-      // Limit to top 3 recommendations to save tokens
-      const topRecommendations = recommendations.slice(0, 3);
+      // Show top 2 most relevant products
+      const topRecommendations = recommendations.slice(0, 2);
       
-      topRecommendations.forEach((rec, index) => {
+      topRecommendations.forEach((rec) => {
         const product = rec.product;
-        prompt += `${index + 1}. ${product.name} (${(rec.relevanceScore * 100).toFixed(0)}% match)\n`;
-        prompt += `   - Rp ${product.price.toLocaleString('id-ID')} | ${product.category}\n`;
-        prompt += `   - Cocok karena: ${rec.reason}\n`;
+        prompt += `• ${product.name} - Rp ${product.price.toLocaleString('id-ID')}\n`;
+        prompt += `  Kenapa cocok: ${rec.reason}\n`;
         if (rec.benefits.length > 0) {
-          prompt += `   - Manfaat: ${rec.benefits.slice(0, 2).join(', ')}\n`; // Limit to 2 benefits
+          prompt += `  Manfaat: ${rec.benefits.slice(0, 2).join(' & ')}\n`;
         }
+        prompt += `  Cara pakai: ${product.dosage}\n`;
+        
+        // Add complete product details to prevent hallucination
+        prompt += `  Ingredients: ${product.ingredients.join(', ')}\n`;
+        prompt += `  Category: ${product.category}\n`;
+        prompt += `  Suitable for: ${product.suitableFor.join(', ')}\n`;
+        if (product.warnings && product.warnings.length > 0) {
+          prompt += `  Warnings: ${product.warnings.join(', ')}\n`;
+        }
+        
+        // Add metadata details if available
+        if (product.metadata) {
+          const meta = product.metadata as any;
+          
+          // Product specifications (flavor, texture, color, etc.)
+          if (meta.productSpecs) {
+            const specs = meta.productSpecs;
+            if (specs.flavor) prompt += `  Flavor: ${specs.flavor}\n`;
+            if (specs.texture) prompt += `  Texture: ${specs.texture}\n`;
+            if (specs.color) prompt += `  Color: ${specs.color}\n`;
+            if (specs.sweetness) prompt += `  Sweetness: ${specs.sweetness}\n`;
+          }
+          
+          // Nutritional information
+          if (meta.calories) prompt += `  Calories: ${meta.calories} per serving\n`;
+          if (meta.fiber) prompt += `  Fiber: ${meta.fiber} per serving\n`;
+          if (meta.protein) prompt += `  Protein: ${meta.protein} per serving\n`;
+          
+          // Clinical information
+          if (meta.clinicalInfo) {
+            const clinical = meta.clinicalInfo;
+            if (clinical.proven) prompt += `  Clinical Evidence: ${clinical.proven}\n`;
+          }
+          
+          // Special features
+          if (meta.specialFeatures) {
+            const features = Object.keys(meta.specialFeatures).filter(key => meta.specialFeatures[key]);
+            if (features.length > 0) {
+              prompt += `  Features: ${features.join(', ')}\n`;
+            }
+          }
+        }
+        prompt += `\n`;
       });
       
-      prompt += `\nGUIDANCE: ${isShortResponse ? 'Be concise. ' : ''}Focus ONLY on listed products. Explain relevance scores. DO NOT suggest any other products.\n`;
+      prompt += `
+🚨 CRITICAL PRODUCT GUIDELINES:
+- ONLY mention details explicitly listed above for each product
+- DO NOT invent flavors, colors, ingredients, or features not specified
+- If customer asks about details not listed, say "Let me check that specific detail for you"
+- NEVER assume product specifications beyond what's provided
+- Suggest naturally in conversation, explain benefits for their specific situation\n`;
     } else {
-      prompt += '\n\nIMPORTANT: No products match this inquiry. DO NOT recommend any products. Focus on:\n';
-      prompt += '- General health consultation and advice\n';
-      prompt += '- Asking more specific questions to understand their needs\n';
-      prompt += '- Explaining that you need more details to suggest suitable products from your inventory\n';
-      prompt += 'NEVER suggest products not in your database.\n';
+      prompt += '\n\nTidak ada produk yang cocok untuk kebutuhan ini.\n';
+      prompt += 'Focus on: Kasih konsultasi umum, tanya lebih detail tentang goalnya, berikan tips diet/lifestyle yang praktis.\n';
+      prompt += 'Jangan recommend produk apapun yang tidak ada di database.\n';
     }
     
     return prompt;
   }
 
   private getOptimizedBasePrompt(isShortResponse: boolean): string {
-    const shortPrompt = `You are Maya, Indonesian healthy diet and health consultant for ${config.businessName}. 
-STYLE: Warm, caring Indonesian. Use "Kak", show empathy. ${isShortResponse ? 'Keep responses brief and direct.' : ''}
-PROCESS: Greet warmly → Ask health details → Recommend based on needs → Collect order info if interested
-HEALTH FOCUS: Ask symptoms, duration, goals before recommending products.
+    const shortPrompt = `Kamu Maya, konsultan diet dan kesehatan dari ${config.businessName}. 
+STYLE: Natural, seperti teman yang peduli. Pakai bahasa casual Indonesian. Respon SINGKAT (1-2 kalimat) kecuali butuh penjelasan detail.
+APPROACH: Tanya goalnya → Dengar keluhannya → Kasih saran yang relevan → Tawarkan produk yang cocok secara natural
+NO: Numbered lists, formal language, menu options, "Silakan pilih"
 
-CRITICAL RULE: ONLY recommend products from the RELEVANT PRODUCTS list below. NEVER suggest products not listed.`;
+RULE: Cuma recommend produk dari list PRODUK YANG BISA BANTU di bawah. Never suggest anything else.`;
 
     const fullPrompt = this.baseSystemPrompt + `
 
@@ -1177,5 +1241,344 @@ CRITICAL PRODUCT RECOMMENDATION RULES:
     } else if (lowerMessage.includes('instant') || lowerMessage.includes('cepat')) {
       context.metadata.currentOrder.shippingOption = 'instant';
     }
+  }
+
+  // Diet Planning and Personalized Guidance Methods
+
+  public async createPersonalizedDietPlan(
+    context: ConversationContext,
+    healthAssessment: HealthAssessment
+  ): Promise<{ 
+    dietProfile: DietProfile; 
+    personalizedPlan: PersonalizedRecommendation[];
+    guidanceMessage: string 
+  }> {
+    try {
+      logger.info('Creating personalized diet plan', { 
+        userId: context.userId,
+        conditions: healthAssessment.conditions,
+        goals: healthAssessment.goals
+      });
+
+      // Extract or build diet profile from conversation
+      const dietProfile = this.buildDietProfileFromContext(context, healthAssessment);
+      
+      // Create personalized plan
+      const planResult = await this.dietPlanningService.createPersonalizedPlan(
+        dietProfile, 
+        healthAssessment
+      );
+
+      // Generate user-friendly guidance message
+      const guidanceMessage = this.generateDietPlanGuidanceMessage(
+        planResult.recommendations,
+        planResult.overallStrategy
+      );
+
+      logger.info('Personalized diet plan created successfully', {
+        userId: context.userId,
+        recommendationsCount: planResult.recommendations.length,
+        primaryGoal: dietProfile.goals[0]?.type
+      });
+
+      return {
+        dietProfile,
+        personalizedPlan: planResult.recommendations,
+        guidanceMessage
+      };
+
+    } catch (error) {
+      logger.error('Failed to create personalized diet plan', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        userId: context.userId
+      });
+      throw error;
+    }
+  }
+
+  public generateDetailedProductGuidance(
+    product: any,
+    _userGoals: string[],
+    userConditions: string[]
+  ): string {
+    const metadata = product.metadata as any;
+    let guidance = `📋 **PANDUAN LENGKAP ${product.name.toUpperCase()}**\n\n`;
+
+    // Detailed composition
+    if (metadata?.detailedComposition) {
+      guidance += `🧬 **KOMPOSISI DETAIL (per sajian):**\n`;
+      const composition = metadata.detailedComposition;
+      
+      if (composition.perServing) {
+        guidance += `• Kalori: ${composition.perServing.calories}\n`;
+        guidance += `• Protein: ${composition.perServing.protein}\n`;
+        guidance += `• Serat: ${composition.perServing.dietaryFiber}\n`;
+        guidance += `• Karbohidrat: ${composition.perServing.carbohydrates}\n`;
+        guidance += `• Lemak: ${composition.perServing.fat}\n\n`;
+      }
+
+      if (composition.activeCompounds) {
+        guidance += `🌿 **SENYAWA AKTIF:**\n`;
+        Object.entries(composition.activeCompounds).forEach(([compound, value]) => {
+          guidance += `• ${compound}: ${value}\n`;
+        });
+        guidance += `\n`;
+      }
+    }
+
+    // Personalized usage guidance
+    if (metadata?.usageGuidance) {
+      guidance += `📖 **CARA PAKAI YANG TEPAT:**\n`;
+      
+      // Find matching condition guidance
+      const conditionGuidance = this.findMatchingConditionGuidance(
+        metadata.usageGuidance.specificConditions,
+        userConditions
+      );
+
+      if (conditionGuidance) {
+        guidance += `🎯 **Untuk kondisi Anda:**\n`;
+        guidance += `• Dosis: ${conditionGuidance.dosage}\n`;
+        guidance += `• Waktu: ${conditionGuidance.timing}\n`;
+        guidance += `• Cara: ${conditionGuidance.instructions}\n`;
+        guidance += `• Target: ${conditionGuidance.expectedResults}\n`;
+        guidance += `• Pantau: ${conditionGuidance.monitoring}\n`;
+        if (conditionGuidance.notes) {
+          guidance += `• Catatan: ${conditionGuidance.notes}\n`;
+        }
+        guidance += `\n`;
+      }
+
+      // Preparation guidance
+      if (metadata.usageGuidance.preparation) {
+        guidance += `🥤 **CARA PENYAJIAN:**\n`;
+        const prep = metadata.usageGuidance.preparation;
+        guidance += `• Air: ${prep.waterTemperature}\n`;
+        guidance += `• Aduk: ${prep.mixingInstructions}\n`;
+        if (prep.additionalTips) {
+          guidance += `• Tips: ${prep.additionalTips}\n`;
+        }
+        guidance += `\n`;
+      }
+    }
+
+    // Safety and considerations
+    guidance += `⚠️ **PERTIMBANGAN KEAMANAN:**\n`;
+    if (product.warnings && product.warnings.length > 0) {
+      product.warnings.forEach((warning: string) => {
+        guidance += `• ${warning}\n`;
+      });
+    }
+    
+    if (metadata?.usageGuidance?.dietaryConsiderations) {
+      const dietary = metadata.usageGuidance.dietaryConsiderations;
+      if (dietary.interactions) {
+        guidance += `• Interaksi obat: ${dietary.interactions}\n`;
+      }
+      if (dietary.allergies) {
+        guidance += `• Alergi: ${dietary.allergies}\n`;
+      }
+    }
+
+    return guidance;
+  }
+
+  private buildDietProfileFromContext(
+    context: ConversationContext,
+    healthAssessment: HealthAssessment
+  ): DietProfile {
+    // Extract information from conversation messages
+    const allText = context.messages
+      .map(m => typeof m.content === 'string' ? m.content : '')
+      .join(' ')
+      .toLowerCase();
+
+    // Extract diet goals from health assessment
+    const dietGoals: DietGoal[] = this.extractDietGoals(healthAssessment, allText);
+
+    // Infer activity level
+    const activityLevel = this.inferActivityLevel(allText);
+
+    // Extract basic demographics
+    const age = this.extractAge(context);
+    const weight = this.extractWeight(allText);
+    const height = this.extractHeight(allText);
+
+    return {
+      userId: context.userId,
+      age,
+      weight,
+      height,
+      activityLevel,
+      medicalConditions: healthAssessment.conditions,
+      currentMedications: this.extractMedications(allText),
+      allergies: this.extractAllergies(allText),
+      dietaryRestrictions: this.extractDietaryRestrictions(allText),
+      goals: dietGoals,
+      preferences: {
+        mealFrequency: this.inferMealFrequency(allText),
+        snackPreference: allText.includes('cemilan') || allText.includes('snack'),
+        cookingTime: this.inferCookingTime(allText),
+        budgetLevel: this.inferBudgetRange(context)
+      }
+    };
+  }
+
+  private extractDietGoals(assessment: HealthAssessment, _text: string): DietGoal[] {
+    const goals: DietGoal[] = [];
+    
+    // Map assessment goals to diet goals
+    assessment.goals.forEach(goal => {
+      if (goal.includes('turun berat') || goal.includes('diet') || goal.includes('langsing')) {
+        goals.push({ type: 'weight_loss', priority: 'high' });
+      } else if (goal.includes('diabetes') || goal.includes('gula darah')) {
+        goals.push({ type: 'diabetes_control', priority: 'high' });
+      } else if (goal.includes('kolesterol')) {
+        goals.push({ type: 'cholesterol_management', priority: 'high' });
+      } else if (goal.includes('maag') || goal.includes('gerd')) {
+        goals.push({ type: 'gerd_relief', priority: 'high' });
+      } else if (goal.includes('otot') || goal.includes('massa')) {
+        goals.push({ type: 'muscle_building', priority: 'medium' });
+      }
+    });
+
+    // Add general wellness if no specific goals
+    if (goals.length === 0) {
+      goals.push({ type: 'general_wellness', priority: 'medium' });
+    }
+
+    return goals;
+  }
+
+  private inferActivityLevel(text: string): DietProfile['activityLevel'] {
+    if (text.includes('gym') || text.includes('olahraga rutin') || text.includes('aktif')) {
+      return 'active';
+    } else if (text.includes('jalan') || text.includes('yoga') || text.includes('ringan')) {
+      return 'light';
+    } else if (text.includes('sedentary') || text.includes('duduk terus') || text.includes('jarang gerak')) {
+      return 'sedentary';
+    }
+    return 'moderate'; // Default
+  }
+
+  private extractWeight(text: string): number | undefined {
+    const weightMatch = text.match(/(\d{1,3})\s*kg/) || text.match(/berat\s*(\d{1,3})/);
+    if (!weightMatch || !weightMatch[1]) return undefined;
+    return parseInt(weightMatch[1], 10);
+  }
+
+  private extractHeight(text: string): number | undefined {
+    const heightMatch = text.match(/(\d{1,3})\s*cm/) || text.match(/tinggi\s*(\d{1,3})/);
+    if (!heightMatch || !heightMatch[1]) return undefined;
+    return parseInt(heightMatch[1], 10);
+  }
+
+  private extractMedications(text: string): string[] {
+    const medications: string[] = [];
+    
+    if (text.includes('metformin')) medications.push('metformin');
+    if (text.includes('insulin')) medications.push('insulin');
+    if (text.includes('statin')) medications.push('statin');
+    if (text.includes('aspirin')) medications.push('aspirin');
+    if (text.includes('obat tekanan darah')) medications.push('antihypertensive');
+    
+    return medications;
+  }
+
+  private extractAllergies(text: string): string[] {
+    const allergies: string[] = [];
+    
+    if (text.includes('alergi susu') || text.includes('lactose')) allergies.push('lactose');
+    if (text.includes('alergi kacang')) allergies.push('nuts');
+    if (text.includes('alergi gluten')) allergies.push('gluten');
+    if (text.includes('alergi seafood')) allergies.push('seafood');
+    
+    return allergies;
+  }
+
+  private extractDietaryRestrictions(text: string): string[] {
+    const restrictions: string[] = [];
+    
+    if (text.includes('vegetarian')) restrictions.push('vegetarian');
+    if (text.includes('vegan')) restrictions.push('vegan');
+    if (text.includes('halal')) restrictions.push('halal');
+    if (text.includes('low carb')) restrictions.push('low_carb');
+    
+    return restrictions;
+  }
+
+  private inferMealFrequency(text: string): number {
+    if (text.includes('5 kali') || text.includes('6 kali')) return 5;
+    if (text.includes('4 kali')) return 4;
+    if (text.includes('2 kali')) return 2;
+    return 3; // Default 3 meals
+  }
+
+  private inferCookingTime(text: string): 'minimal' | 'moderate' | 'extensive' {
+    if (text.includes('sibuk') || text.includes('praktis') || text.includes('cepat')) {
+      return 'minimal';
+    } else if (text.includes('masak') || text.includes('memasak')) {
+      return 'extensive';
+    }
+    return 'moderate';
+  }
+
+  private findMatchingConditionGuidance(specificConditions: any, userConditions: string[]): any {
+    if (!specificConditions) return null;
+
+    const conditionMap: Record<string, string> = {
+      'diabetes': 'diabetes',
+      'gula darah tinggi': 'diabetes',
+      'kolesterol tinggi': 'cholesterol',
+      'GERD': 'gerd',
+      'maag': 'gerd',
+      'obesitas': 'weightLoss',
+      'berat badan berlebih': 'weightLoss'
+    };
+
+    for (const condition of userConditions) {
+      const guidanceKey = conditionMap[condition.toLowerCase()];
+      if (guidanceKey && specificConditions[guidanceKey]) {
+        return specificConditions[guidanceKey];
+      }
+    }
+
+    return null;
+  }
+
+  private generateDietPlanGuidanceMessage(
+    recommendations: PersonalizedRecommendation[],
+    _overallStrategy: string
+  ): string {
+    let message = `🎯 **RENCANA DIET PERSONAL ANDA**\n\n`;
+    
+    if (recommendations.length > 0) {
+      const primary = recommendations[0];
+      if (!primary) return message + `💡 **Konsultasi lebih detail untuk rencana yang tepat.**`;
+      
+      message += `**PRODUK UTAMA: ${primary.product.name}**\n`;
+      message += `📅 **Jadwal:** ${primary.personalizedDosage.frequency}\n`;
+      message += `⏰ **Waktu:** ${primary.personalizedDosage.timing.join(', ')}\n`;
+      message += `📝 **Cara:** ${primary.personalizedDosage.instructions}\n\n`;
+
+      message += `🎯 **TARGET HASIL:**\n`;
+      message += `• 1-2 minggu: ${primary.expectedResults.shortTerm}\n`;
+      message += `• 4-8 minggu: ${primary.expectedResults.mediumTerm}\n`;
+      message += `• 3+ bulan: ${primary.expectedResults.longTerm}\n\n`;
+
+      message += `📊 **PANTAU:**\n`;
+      primary.monitoringPlan.metrics.forEach(metric => {
+        message += `• ${metric}\n`;
+      });
+      message += `\n`;
+
+      message += `🥗 **DUKUNGAN DIET:**\n`;
+      message += `**Perbanyak:** ${primary.dietarySupport.foodsToEmphasize.slice(0, 3).join(', ')}\n`;
+      message += `**Batasi:** ${primary.dietarySupport.foodsToLimit.slice(0, 3).join(', ')}\n\n`;
+    }
+
+    message += `💡 **Mau konsultasi lebih detail tentang rencana diet ini?**`;
+    
+    return message;
   }
 }

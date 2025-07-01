@@ -71,6 +71,128 @@ const healthProducts: Omit<Product, 'id' | 'createdAt' | 'updatedAt'>[] = [
           '9 sachets': 198000
         },
         freeShipping: ['1 pouch', '2 pouch', '7 sachets', '9 sachets']
+      },
+      productSpecs: {
+        flavor: 'Natural oat dengan ubi ungu (tanpa rasa buatan)',
+        texture: 'Bubuk halus, mudah larut dalam air',
+        color: 'Ungu alami dari ubi ungu',
+        sweetness: 'Rasa manis alami tanpa gula tambahan',
+        packaging: 'Sachet individual kedap udara',
+        shelfLife: '24 bulan dari tanggal produksi',
+        storage: 'Simpan di tempat kering dan sejuk'
+      },
+      clinicalInfo: {
+        betaGlucanContent: '3g per serving',
+        fiberContent: '15g per serving',
+        antioxidantLevel: '20x vitamin C',
+        proven: 'Terbukti klinis turunkan kolesterol 15-30% dalam 8 minggu'
+      },
+      detailedComposition: {
+        perServing: {
+          calories: 120,
+          protein: '5g (8% daily value)',
+          carbohydrates: '22g (7% daily value)',
+          dietaryFiber: '15g (60% daily value)',
+          sugars: '0g (no added sugar)',
+          fat: '2g (3% daily value)',
+          saturatedFat: '0.5g (3% daily value)',
+          sodium: '35mg (2% daily value)',
+          potassium: '280mg (8% daily value)'
+        },
+        vitamins: {
+          vitaminA: '15% daily value',
+          vitaminC: '25% daily value',
+          vitaminD: '10% daily value',
+          vitaminE: '20% daily value',
+          vitaminB1: '12% daily value',
+          vitaminB2: '15% daily value',
+          vitaminB6: '18% daily value',
+          vitaminB12: '20% daily value',
+          folate: '10% daily value',
+          niacin: '12% daily value',
+          pantothenic: '8% daily value',
+          biotin: '15% daily value'
+        },
+        minerals: {
+          calcium: '12% daily value',
+          iron: '15% daily value',
+          magnesium: '20% daily value',
+          phosphorus: '10% daily value',
+          zinc: '18% daily value',
+          copper: '8% daily value',
+          manganese: '25% daily value',
+          selenium: '12% daily value',
+          chromium: '15% daily value'
+        },
+        activeCompounds: {
+          betaGlucan: '3g (soluble fiber)',
+          anthocyanins: '150mg (from purple sweet potato)',
+          antioxidants: 'ORAC value 2500 μmol TE/serving',
+          prebiotics: '2g (inulin and oligofructose)',
+          phytosterols: '50mg (cholesterol-blocking compounds)'
+        }
+      },
+      usageGuidance: {
+        basicUsage: {
+          maintenance: {
+            frequency: '1x daily',
+            timing: 'Morning or evening',
+            duration: 'Long-term daily use',
+            expectedResults: 'General health maintenance, energy boost'
+          },
+          therapeutic: {
+            frequency: '2-3x daily',
+            timing: '30 minutes before meals',
+            duration: '8-12 weeks minimum',
+            expectedResults: 'Cholesterol reduction, blood sugar stabilization'
+          }
+        },
+        specificConditions: {
+          diabetes: {
+            dosage: '2x daily before main meals',
+            timing: '30 minutes before breakfast and dinner',
+            instructions: 'Mix with 200ml lukewarm water, stir well',
+            expectedResults: 'Blood sugar stabilization within 2-4 weeks',
+            monitoring: 'Check blood glucose levels weekly',
+            notes: 'Consult doctor for medication adjustment'
+          },
+          cholesterol: {
+            dosage: '2x daily',
+            timing: 'Morning and evening with meals',
+            instructions: 'Consistent daily use is key',
+            expectedResults: '15-30% LDL reduction in 8 weeks',
+            monitoring: 'Lipid profile test after 8 weeks',
+            notes: 'Combine with low-fat diet for best results'
+          },
+          gerd: {
+            dosage: '1x daily',
+            timing: '2 hours after dinner',
+            instructions: 'Mix with cool water, drink slowly',
+            expectedResults: 'Symptom relief within 1-2 weeks',
+            monitoring: 'Track heartburn episodes',
+            notes: 'Avoid spicy foods during treatment'
+          },
+          weightLoss: {
+            dosage: '1-2x daily',
+            timing: '30 minutes before main meals',
+            instructions: 'Drink 2 glasses water after consumption',
+            expectedResults: 'Appetite control, gradual weight loss',
+            monitoring: 'Weekly weight and measurements',
+            notes: 'Combine with regular exercise'
+          }
+        },
+        preparation: {
+          waterTemperature: 'Room temperature to lukewarm (not hot)',
+          mixingInstructions: 'Stir vigorously for 30 seconds until fully dissolved',
+          additionalTips: 'Can add ice for refreshing taste, avoid mixing with milk',
+          storage: 'Use within 30 minutes of preparation'
+        },
+        dietaryConsiderations: {
+          interactions: 'Take 2 hours apart from medications',
+          allergies: 'Contains oats (gluten-free oats used)',
+          restrictions: 'Suitable for diabetics, vegetarians, lactose intolerant',
+          pregnancy: 'Safe during pregnancy and breastfeeding'
+        }
       }
     }
   },

@@ -138,17 +138,6 @@ export class WhatsAppService {
       // Send response
       await this.sendMessage(message.from, response);
 
-      // Send quick replies if applicable
-      const quickReplies = await this.claudeService.generateQuickReply(newState);
-      if (quickReplies.length > 0) {
-        // Note: Baileys doesn't support buttons in regular WhatsApp
-        // We'll send them as a numbered list for now
-        const quickReplyText = '\n\nPilihan cepat:\n' + 
-          quickReplies.map((reply: string, index: number) => `${index + 1}. ${reply}`).join('\n');
-        
-        await this.sendMessage(message.from, quickReplyText);
-      }
-
       // Log successful interaction
       logger.info('Message processed successfully', {
         from: message.from,
