@@ -16,12 +16,39 @@ export enum ErrorType {
   UNKNOWN_ERROR = 'UNKNOWN_ERROR'
 }
 
+// These exports are available from ErrorType enum
+// Commented out to avoid ESLint unused variable warnings
+// export const {
+//   VALIDATION_ERROR,
+//   AUTHENTICATION_ERROR,
+//   AUTHORIZATION_ERROR,
+//   RATE_LIMIT_ERROR,
+//   NETWORK_ERROR,
+//   DATABASE_ERROR,
+//   CLAUDE_API_ERROR,
+//   WHATSAPP_ERROR,
+//   BUSINESS_LOGIC_ERROR,
+//   SYSTEM_ERROR,
+//   UNKNOWN_ERROR
+// } = ErrorType;
+ 
+
 export enum ErrorSeverity {
   LOW = 'LOW',
   MEDIUM = 'MEDIUM',
   HIGH = 'HIGH',
   CRITICAL = 'CRITICAL'
 }
+
+// These exports are available from ErrorSeverity enum
+// Commented out to avoid ESLint unused variable warnings
+// export const {
+//   LOW,
+//   MEDIUM,
+//   HIGH,
+//   CRITICAL
+// } = ErrorSeverity;
+ 
 
 export class AppError extends Error {
   public readonly statusCode: number;

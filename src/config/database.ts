@@ -173,6 +173,39 @@ class DatabaseManager {
         )
       `);
 
+      // Business hours table for dynamic operating hours
+      await run(`
+        CREATE TABLE IF NOT EXISTS business_hours (
+          id TEXT PRIMARY KEY,
+          day_of_week INTEGER NOT NULL CHECK(day_of_week >= 0 AND day_of_week <= 6), -- 0=Sunday, 6=Saturday
+          is_open BOOLEAN NOT NULL DEFAULT 0,
+          open_time TEXT CHECK(open_time IS NULL OR LENGTH(open_time) = 5), -- HH:MM format
+          close_time TEXT CHECK(close_time IS NULL OR LENGTH(close_time) = 5), -- HH:MM format
+          is_24_hours BOOLEAN NOT NULL DEFAULT 0,
+          timezone TEXT NOT NULL DEFAULT 'Asia/Jakarta',
+          special_note TEXT DEFAULT NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(day_of_week)
+        )
+      `);
+
+      // Special schedules for holidays, events, etc.
+      await run(`
+        CREATE TABLE IF NOT EXISTS special_schedules (
+          id TEXT PRIMARY KEY,
+          date TEXT NOT NULL, -- YYYY-MM-DD format
+          is_open BOOLEAN NOT NULL DEFAULT 0,
+          open_time TEXT CHECK(open_time IS NULL OR LENGTH(open_time) = 5), -- HH:MM format
+          close_time TEXT CHECK(close_time IS NULL OR LENGTH(close_time) = 5), -- HH:MM format
+          is_24_hours BOOLEAN NOT NULL DEFAULT 0,
+          reason TEXT NOT NULL, -- Holiday, Special Event, etc.
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(date)
+        )
+      `);
+
       // Create indexes for better performance
       const indexes = [
         'CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers (phone)',
@@ -185,7 +218,9 @@ class DatabaseManager {
         'CREATE INDEX IF NOT EXISTS idx_products_category ON products (category)',
         'CREATE INDEX IF NOT EXISTS idx_products_stock ON products (in_stock)',
         'CREATE INDEX IF NOT EXISTS idx_recommendations_customer_id ON product_recommendations (customer_id)',
-        'CREATE INDEX IF NOT EXISTS idx_recommendations_date ON product_recommendations (recommended_at DESC)'
+        'CREATE INDEX IF NOT EXISTS idx_recommendations_date ON product_recommendations (recommended_at DESC)',
+        'CREATE INDEX IF NOT EXISTS idx_business_hours_day ON business_hours (day_of_week)',
+        'CREATE INDEX IF NOT EXISTS idx_special_schedules_date ON special_schedules (date)'
       ];
 
       for (const indexSql of indexes) {
@@ -214,6 +249,22 @@ class DatabaseManager {
         AFTER UPDATE ON conversations
         BEGIN
           UPDATE conversations SET last_activity = CURRENT_TIMESTAMP WHERE id = NEW.id;
+        END
+      `);
+
+      await run(`
+        CREATE TRIGGER IF NOT EXISTS update_business_hours_timestamp 
+        AFTER UPDATE ON business_hours
+        BEGIN
+          UPDATE business_hours SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+        END
+      `);
+
+      await run(`
+        CREATE TRIGGER IF NOT EXISTS update_special_schedules_timestamp 
+        AFTER UPDATE ON special_schedules
+        BEGIN
+          UPDATE special_schedules SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
         END
       `);
 

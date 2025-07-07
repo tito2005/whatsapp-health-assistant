@@ -38,7 +38,7 @@ export class OrderRepository {
   private connection: DatabaseConnection | null = null;
 
   constructor() {
-    this.initializeConnection();
+    void this.initializeConnection();
   }
 
   private async initializeConnection(): Promise<void> {

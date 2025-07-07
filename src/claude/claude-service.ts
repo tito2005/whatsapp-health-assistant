@@ -1,10 +1,14 @@
 import { config } from '@/config/environment';
 import { HealthAssessment, ProductService, RecommendationContext } from '@/products/product-service';
 import { log, logger } from '@/shared/logger';
+import { addDisclaimerToResponse, hasDisclaimer } from '@/shared/disclaimers';
 import { ProductRecommendation } from '@/types/product';
 import { OrderCollection } from '@/types/order';
 import { OrderService } from '@/orders/order-service';
 import { DietPlanningService, DietProfile, DietGoal, PersonalizedRecommendation } from '@/diet/diet-planning-service-simple';
+// import { BusinessHoursService } from '@/services/business-hours-service';
+import { BusinessStatus } from '@/types/business-hours';
+import personalStyle, { getRandomPhrase, formatPrice } from '@/config/personal-style';
 import Anthropic from '@anthropic-ai/sdk';
 import { MessageParam } from '@anthropic-ai/sdk/resources';
 
@@ -37,6 +41,9 @@ export interface ConversationContext {
       currentWeek?: number;
       progressTracking?: Record<string, any>;
     };
+    // Business hours
+    businessHoursStatus?: BusinessStatus;
+    sentBusinessHoursInfo?: boolean;
   };
 }
 
@@ -58,6 +65,7 @@ export class ClaudeService {
   private productService: ProductService;
   private orderService: OrderService;
   private dietPlanningService: DietPlanningService;
+  // private businessHoursService: BusinessHoursService;
 
   constructor() {
     this.anthropic = new Anthropic({
@@ -67,87 +75,181 @@ export class ClaudeService {
     this.productService = new ProductService();
     this.orderService = new OrderService();
     this.dietPlanningService = new DietPlanningService();
+    // this.businessHoursService = new BusinessHoursService();
     this.baseSystemPrompt = this.loadBaseSystemPrompt();
-    log.startup('Claude service initialized with product integration and order processing');
+    log.startup('Claude service initialized with product integration, order processing, and business hours');
   }
 
   private loadBaseSystemPrompt(): string {
-    return `You are Maya, a caring and knowledgeable diet consultant from ${config.businessName}. You help people achieve their body goals and health objectives through personalized guidance and our specialized health products.
+    // Get personalized style elements
+    const sampleGreeting = getRandomPhrase(personalStyle.greetings);
+    const sampleTransition = getRandomPhrase(personalStyle.transitions);
+    const sampleEmpathy = getRandomPhrase(personalStyle.empathyPhrases);
+    
+    // Get current time in Indonesia (WIB)
+    const currentTimeWIB = this.getCurrentTimeWIB();
+    
+    return `You are Maya, a caring and knowledgeable health consultant from ${config.businessName}. ${personalStyle.expertise}
 
-COMMUNICATION STYLE - BE NATURAL & CONVERSATIONAL:
-- Talk like a real person, not a chatbot
-- Keep responses SHORT (1-3 sentences max) unless detailed explanation is needed
-- Use warm, casual Indonesian: "Halo kak!", "Gimana kabarnya?", "Wah bagus nih!"
-- Be encouraging: "Pasti bisa!", "Keren goalnya!", "Semangat ya!"
-- Show genuine interest: "Cerita dong...", "Oh gitu ya...", "Menarik nih..."
-- NO numbered lists, NO menu options, NO "Silakan pilih"
-- Make it feel like chatting with a knowledgeable friend
+⚠️ IMPORTANT: You are NOT a licensed medical professional. Your advice is for general education only and should not replace professional medical consultation.
 
-FOCUS: DIET & BODY GOALS CONSULTATION
+PERSONAL COMMUNICATION STYLE:
+${personalStyle.tone}
+${personalStyle.language}
+CRITICAL: Keep responses VERY SHORT (max 1-2 sentences). Be brief like real WhatsApp chat.
+
+YOUR NATURAL EXPRESSIONS:
+- Greetings: "${sampleGreeting}"
+- Transitions: "${sampleTransition}" 
+- Empathy: "${sampleEmpathy}"
+- Avoid formal language, numbered lists, or menu-style responses
+
+BUSINESS PHILOSOPHY:
+${personalStyle.businessPhilosophy}
+
+BUSINESS LOCATION & OPERATIONS:
+📍 Location: ${personalStyle.businessLocation.city}
+🎯 Service Area: ${personalStyle.businessLocation.serviceArea}
+⏰ Chat Availability: ${personalStyle.businessLocation.chatAvailability}
+🚚 Shipping Policy: ${personalStyle.businessLocation.shippingPolicy}
+🕐 Timezone: ${personalStyle.businessLocation.timezone}
+
+CURRENT TIME CONTEXT:
+🕐 Current Time: ${currentTimeWIB.time} WIB (${currentTimeWIB.date})
+🌅 Time of Day: ${currentTimeWIB.period}
+
+APPROPRIATE GREETINGS BY TIME:
+- Pagi (06:00-10:59): "Selamat pagi", "Pagi kak"
+- Siang (11:00-14:59): "Selamat siang", "Siang kak"  
+- Sore (15:00-17:59): "Selamat sore", "Sore kak"
+- Malam (18:00-05:59): "Selamat malam", "Malam kak"
+
+ALWAYS use time-appropriate greetings and closings based on current WIB time!
+
+PAYMENT INFORMATION:
+💳 Payment Methods: ${personalStyle.paymentInfo.methods}
+
+Bank Transfer Details:
+• BCA: ${personalStyle.paymentInfo.bankAccounts.bca}
+• Mandiri: ${personalStyle.paymentInfo.bankAccounts.mandiri}
+• OVO/Gopay/Dana: ${personalStyle.paymentInfo.bankAccounts.ovo}
+• Account Name: ${personalStyle.paymentInfo.accountName}
+
+Important: ${personalStyle.paymentInfo.confirmationNote}
+
+BULK PRICING RULES (IMPORTANT - NO CALCULATION ERRORS!):
+${this.getBulkPricingRules()}
+
+PRICING CALCULATION RULES:
+- 1 pouch Hotto = 295k
+- 2+ pouches Hotto = 285k per pouch (so 3 pouches = 285k × 3 = 855k)
+- 10+ pouches Hotto = 250k per pouch (so 10 pouches = 2.5jt, 15 pouches = 250k × 15 = 3.75jt)
+- NEVER use 295k per pouch for quantities 2 or more
+- ALWAYS calculate correctly based on tier pricing
+- Examples: 3 pouches = 855k, 5 pouches = 1.425jt, 10 pouches = 2.5jt
+
+IMPORTANT SERVICE BOUNDARIES:
+- ONLY serve customers located in Batam
+- If customer is outside Batam, politely explain we're a local Batam shop
+- Chat/consultation available 24/7 
+- Shipping only during business hours
+- Always confirm customer is in Batam before processing orders
+
+CONSULTATION APPROACH:
+${personalStyle.consultationStyle}
+
+PRODUCT RECOMMENDATION STYLE:
+${personalStyle.productRecommendationStyle}
+
+ORDER PROCESSING STYLE:
+${personalStyle.orderProcessingStyle}
+
+RESPONSE EXAMPLES TO LEARN FROM:
+Health Inquiries: Study these examples of how you should respond to health questions:
+${personalStyle.responseExamples.healthInquiry.map(example => `"${example}"`).join('\n')}
+
+Product Questions: Reference these when explaining products:
+${personalStyle.responseExamples.productQuestions.map(example => `"${example}"`).join('\n')}
+
+Payment Information: Use these when customers ask about payment:
+${personalStyle.responseExamples.payment.map(example => `"${example}"`).join('\n')}
+
+Out-of-Area Customers: Use these when customers are outside Batam:
+${personalStyle.responseExamples.outOfArea.map(example => `"${example}"`).join('\n')}
 
 🚨 CRITICAL ANTI-HALLUCINATION RULES:
-- NEVER invent product details (flavors, ingredients, features) not in the PRODUCTS section below
-- ONLY mention product information explicitly provided in the current conversation context
-- If you don't know a specific detail, say "Let me check the exact details for you" 
-- DO NOT assume or guess product specifications, flavors, or features
-- STICK STRICTLY to the provided product database information
+- NEVER invent product details not in the PRODUCTS section below
+- ONLY mention product information explicitly provided in current context
+- If unsure about details, say "Let me check that specific detail for you"
+- STICK STRICTLY to provided product database information
 
-Your main products and their general purposes:
-- HOTTO PURTO/MAME: Multi-benefit health drinks (see PRODUCTS section for exact details)
+Your main products:
+- HOTTO PURTO/MAME: Multi-benefit health drinks
 - Spencer's MealBlend: Weight loss meal replacement
 - Mganik MetaFiber & Superfood: Diabetes management, blood sugar control  
 - 3Peptide: Hypertension/high blood pressure control
 - Flimty Fiber: Digestive health and detox
 
-CONVERSATION APPROACH:
-1. Ask about their health/body goals naturally
-2. Listen to their challenges and current situation  
-3. Suggest products that can help their specific goals
-4. Explain how to use products for best results
-5. Give practical diet and lifestyle tips
-6. Only mention ordering when they show interest
+RESPONSE STYLE EXAMPLES:
+User: "halo kak mau tanya tentang hotto purto"
+You: "Halo kak! Ada yang bisa dibantu? 😊"
 
-RESPONSE GUIDELINES:
-- Start with empathy/understanding
-- Give ONE main suggestion per message
-- Explain WHY it helps their specific situation
-- End with a natural follow-up question
-- Be supportive and motivating
+User: "untuk diabetes ada produk apa?"
+You: "Baik kak, untuk diabetes kita ada mganik metafiber ya 😊"
 
-DIET & HEALTH GOALS EXPERTISE:
-Common goals you help with:
-- Weight loss/turun berat badan
-- Diabetes/gula darah tinggi  
-- Hypertension/darah tinggi
-- Digestive issues/masalah pencernaan
-- GERD/maag
-- General health/kesehatan umum
-- Body goals/target badan ideal
+User: "harga berapa?"
+You: "Mganik metafiber 1 tub 299k gratis ongkir ya kak 😊"
 
-NATURAL CONSULTATION FLOW:
-- "Goalnya apa nih?" (understand their objectives)
-- "Udah coba apa aja?" (learn their current efforts)
-- "Kendala utamanya dimana?" (identify main challenges)
-- Give specific, practical advice for their situation
-- Suggest relevant products naturally in conversation
-- Share usage tips and realistic expectations
+KEEP IT SIMPLE - Match the user's energy and length!
 
-ORDERING (ONLY when they ask):
-Just ask: "Mau order yang mana?" then get:
-- Nama lengkap
-- Nomor WA aktif  
-- Alamat lengkap
-- Pilihan pembayaran sesuai daerah
+IMPORTANT: Channel your personal expertise and communication style in every response. Be authentically yourself while maintaining professionalism.
 
-IMPORTANT RULES:
-- NEVER list products like a menu
-- NEVER use formal language or numbered options
-- Only recommend products you actually have
-- Give diet/lifestyle tips along with product suggestions
-- Be encouraging about their goals
-- Keep responses conversational and brief
+DISCLAIMER POLICY: Medical disclaimers will be automatically added only when collecting shipping/order information, not for general product discussions or consultations.`;
+  }
 
-Remember: You're their supportive diet buddy, not a sales robot! 😊`;
+  private getCurrentTimeWIB(): { time: string; date: string; period: string } {
+    const now = new Date();
+    const wibTime = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Jakarta" }));
+    
+    const hours = wibTime.getHours();
+    const minutes = wibTime.getMinutes();
+    const timeString = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+    
+    const dateString = wibTime.toLocaleDateString('id-ID', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+    
+    let period: string;
+    if (hours >= 6 && hours < 11) {
+      period = 'Pagi';
+    } else if (hours >= 11 && hours < 15) {
+      period = 'Siang';
+    } else if (hours >= 15 && hours < 18) {
+      period = 'Sore';
+    } else {
+      period = 'Malam';
+    }
+    
+    return {
+      time: timeString,
+      date: dateString,
+      period: period
+    };
+  }
+
+  private getBulkPricingRules(): string {
+    let rules = '';
+    for (const [productKey, pricing] of Object.entries(personalStyle.bulkPricing)) {
+      rules += `\n${productKey.toUpperCase()}:\n`;
+      for (const rule of pricing.bulkRules) {
+        rules += `  • ${rule.description}\n`;
+      }
+      rules += `  • Regular price per unit: ${formatPrice(pricing.regularPrice)}\n`;
+    }
+    return rules;
   }
 
   public async processMessage(
@@ -165,8 +267,8 @@ Remember: You're their supportive diet buddy, not a sales robot! 😊`;
       // Get product recommendations if health concerns are identified or general inquiry
       const recommendations = await this.getRelevantRecommendations(healthAssessment, context, message);
       
-      // Build dynamic system prompt with current product data
-      const systemPrompt = await this.buildDynamicSystemPrompt(recommendations, context);
+      // Build dynamic system prompt with current product data and real-time context
+      const systemPrompt = await this.buildDynamicSystemPrompt(recommendations, context, true);
       
       // Build conversation history with smart compression
       const messages: MessageParam[] = [
@@ -175,8 +277,8 @@ Remember: You're their supportive diet buddy, not a sales robot! 😊`;
       ];
 
       // Call Claude API with dynamic context and response optimization
-      const isBriefPreferred = context.metadata?.userPreferences?.communicationStyle === 'brief';
-      const maxTokens = isBriefPreferred ? Math.min(config.claudeMaxTokens || 1000, 150) : (config.claudeMaxTokens || 1000);
+      const isBriefPreferred = personalStyle.responseLength === 'brief' || context.metadata?.userPreferences?.communicationStyle === 'brief';
+      const maxTokens = isBriefPreferred ? 100 : Math.min(config.claudeMaxTokens || 1000, 200);
       const completion = await this.anthropic.messages.create({
         model: config.claudeModel,
         max_tokens: maxTokens,
@@ -216,8 +318,14 @@ Remember: You're their supportive diet buddy, not a sales robot! 😊`;
         duration
       });
 
+      // Add disclaimer only when collecting shipping info (order process)
+      const needsDisclaimer = this.shouldAddDisclaimer(newState, context, responseText);
+      const finalResponse = (hasDisclaimer(responseText) || !needsDisclaimer)
+        ? responseText 
+        : addDisclaimerToResponse(responseText);
+
       return {
-        response: responseText,
+        response: finalResponse,
         newState: newState,
       };
 
@@ -458,12 +566,12 @@ Remember: You're their supportive diet buddy, not a sales robot! 😊`;
     }
   }
 
-  private async buildDynamicSystemPrompt(recommendations: ProductRecommendation[], context?: ConversationContext): Promise<string> {
+  private async buildDynamicSystemPrompt(recommendations: ProductRecommendation[], context?: ConversationContext, includeRealTime: boolean = false): Promise<string> {
     const userPrefs = context?.metadata?.userPreferences;
     const isShortResponse = userPrefs?.communicationStyle === 'brief';
     
-    // Base optimized prompt
-    let prompt = this.getOptimizedBasePrompt(isShortResponse);
+    // Base optimized prompt with real-time context if needed
+    let prompt = includeRealTime ? this.getBasePromptWithRealTime(isShortResponse) : this.getOptimizedBasePrompt(isShortResponse);
     
     // Add conversation memory context
     if (context?.metadata) {
@@ -576,6 +684,29 @@ CRITICAL PRODUCT RECOMMENDATION RULES:
 3. If no listed products match their needs, focus on general health advice and ask more questions
 4. If they ask about products you don't carry, politely explain you only offer the products listed
 5. Always check the RELEVANT PRODUCTS section before making any product recommendations`;
+    
+    return isShortResponse ? shortPrompt : fullPrompt;
+  }
+
+  private getBasePromptWithRealTime(isShortResponse: boolean): string {
+    // Get current time for real-time context
+    const currentTimeWIB = this.getCurrentTimeWIB();
+    
+    const shortPrompt = `Kamu Maya, konsultan diet dan kesehatan dari ${config.businessName}. 
+STYLE: Natural, seperti teman yang peduli. Pakai bahasa casual Indonesian. Respon SINGKAT (1-2 kalimat) kecuali butuh penjelasan detail.
+
+CURRENT TIME: ${currentTimeWIB.time} WIB (${currentTimeWIB.period}) - ${currentTimeWIB.date}
+GREETINGS: Gunakan greeting sesuai waktu WIB (Pagi 06-10, Siang 11-14, Sore 15-17, Malam 18-05)
+
+APPROACH: Tanya goalnya → Dengar keluhannya → Kasih saran yang relevan → Tawarkan produk yang cocok secara natural
+NO: Numbered lists, formal language, menu options, "Silakan pilih"
+
+RULE: Cuma recommend produk dari list PRODUK YANG BISA BANTU di bawah. Never suggest anything else.`;
+
+    const fullPrompt = this.baseSystemPrompt.replace(
+      'CURRENT TIME CONTEXT:\n🕐 Current Time: ${currentTimeWIB.time} WIB (${currentTimeWIB.date})\n🌅 Time of Day: ${currentTimeWIB.period}',
+      `CURRENT TIME CONTEXT:\n🕐 Current Time: ${currentTimeWIB.time} WIB (${currentTimeWIB.date})\n🌅 Time of Day: ${currentTimeWIB.period}`
+    );
     
     return isShortResponse ? shortPrompt : fullPrompt;
   }
@@ -1093,6 +1224,24 @@ CRITICAL PRODUCT RECOMMENDATION RULES:
       const newPoint = `Recommended ${recommendations[0].product.name} for ${recommendations[0].reason}`;
       context.metadata.keyPoints = [...keyPoints, newPoint].slice(-3);
     }
+  }
+
+  // Disclaimer Control Method
+  private shouldAddDisclaimer(
+    _newState: ConversationState,
+    context: ConversationContext,
+    responseText: string
+  ): boolean {
+    // Only add disclaimer when actually collecting shipping address details
+    const isCollectingAddress = context.metadata?.orderStep === 'customer_info' ||
+                               context.metadata?.orderStep === 'shipping';
+    
+    // Only add if asking for specific address details
+    const askingForAddress = responseText.toLowerCase().includes('alamat lengkap') ||
+                            responseText.toLowerCase().includes('nama lengkap') ||
+                            responseText.toLowerCase().includes('nomor wa');
+    
+    return isCollectingAddress && askingForAddress;
   }
 
   // Order Processing Methods

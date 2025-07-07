@@ -6,8 +6,8 @@ export interface RetryOptions {
   maxDelay?: number;
   backoffFactor?: number;
   jitter?: boolean;
-  retryCondition?: (error: any) => boolean;
-  onRetry?: (attempt: number, error: any) => void;
+  retryCondition?: (_error: any) => boolean;
+  onRetry?: (_attempt: number, _error: any) => void;
 }
 
 export interface CircuitBreakerOptions {
@@ -22,6 +22,15 @@ export enum CircuitBreakerState {
   OPEN = 'OPEN',
   HALF_OPEN = 'HALF_OPEN'
 }
+
+// These exports are available from CircuitBreakerState enum
+// Commented out to avoid ESLint unused variable warnings
+// export const {
+//   CLOSED,
+//   OPEN,
+//   HALF_OPEN
+// } = CircuitBreakerState;
+ 
 
 export class RetryService {
   /**
@@ -117,9 +126,9 @@ export class RetryService {
   public static createRetryWrapper<T extends any[], R>(
     fn: (...args: T) => Promise<R>,
     options: RetryOptions = {}
-  ): (...args: T) => Promise<R> {
-    return async (...args: T): Promise<R> => {
-      return this.executeWithRetry(() => fn(...args), options);
+  ): (..._args: T) => Promise<R> {
+    return async (..._args: T): Promise<R> => {
+      return this.executeWithRetry(() => fn(..._args), options);
     };
   }
 
@@ -193,7 +202,7 @@ export class CircuitBreaker {
   private readonly halfOpenMaxCalls: number;
   
   constructor(
-    private name: string,
+    private _name: string,
     options: CircuitBreakerOptions = {}
   ) {
     this.failureThreshold = options.failureThreshold || 5;
@@ -210,12 +219,12 @@ export class CircuitBreaker {
         this.state = CircuitBreakerState.HALF_OPEN;
         this.successCount = 0;
         logger.info('Circuit breaker transitioning to HALF_OPEN', { 
-          name: this.name 
+          name: this._name 
         });
       } else {
-        const error = new Error(`Circuit breaker is OPEN for ${this.name}`);
+        const error = new Error(`Circuit breaker is OPEN for ${this._name}`);
         logger.warn('Circuit breaker rejecting call', { 
-          name: this.name,
+          name: this._name,
           state: this.state 
         });
         throw error;
@@ -242,7 +251,7 @@ export class CircuitBreaker {
       if (this.successCount >= this.halfOpenMaxCalls) {
         this.reset();
         logger.info('Circuit breaker reset to CLOSED', { 
-          name: this.name,
+          name: this._name,
           successCount: this.successCount 
         });
       }
@@ -261,13 +270,13 @@ export class CircuitBreaker {
     if (this.state === CircuitBreakerState.HALF_OPEN) {
       this.state = CircuitBreakerState.OPEN;
       logger.warn('Circuit breaker opened from HALF_OPEN', { 
-        name: this.name,
+        name: this._name,
         failureCount: this.failureCount 
       });
     } else if (this.failureCount >= this.failureThreshold) {
       this.state = CircuitBreakerState.OPEN;
       logger.warn('Circuit breaker opened due to failure threshold', { 
-        name: this.name,
+        name: this._name,
         failureCount: this.failureCount,
         threshold: this.failureThreshold 
       });
@@ -301,7 +310,7 @@ export class CircuitBreaker {
     successCount: number;
   } {
     return {
-      name: this.name,
+      name: this._name,
       state: this.state,
       failureCount: this.failureCount,
       lastFailureTime: this.lastFailureTime,
@@ -315,7 +324,7 @@ export class CircuitBreaker {
   public forceOpen(): void {
     this.state = CircuitBreakerState.OPEN;
     this.lastFailureTime = Date.now();
-    logger.warn('Circuit breaker forced to OPEN state', { name: this.name });
+    logger.warn('Circuit breaker forced to OPEN state', { name: this._name });
   }
 
   /**
@@ -323,7 +332,7 @@ export class CircuitBreaker {
    */
   public forceClose(): void {
     this.reset();
-    logger.info('Circuit breaker forced to CLOSED state', { name: this.name });
+    logger.info('Circuit breaker forced to CLOSED state', { name: this._name });
   }
 }
 

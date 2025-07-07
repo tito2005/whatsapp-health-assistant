@@ -1,4 +1,5 @@
 import { logger } from '@/shared/logger';
+import { getConditionDisclaimer } from '@/shared/disclaimers';
 import { Product, ProductRecommendation } from '@/types/product';
 import { productDatabase, ProductSearchFilters } from './product-database';
 
@@ -298,7 +299,9 @@ export class ProductService {
       reasons.push('Pendekatan alami dan gentle untuk perawatan sehari-hari');
     }
 
-    return reasons.join('. ') || `${product.name} sangat sesuai untuk kebutuhan kesehatan Anda`;
+    const baseReason = reasons.join('. ') || `${product.name} sangat sesuai untuk kebutuhan kesehatan Anda`;
+    const disclaimer = getConditionDisclaimer(assessment.conditions);
+    return `${baseReason}\n\n${disclaimer}`;
   }
 
   private extractRelevantBenefits(product: Product, assessment: HealthAssessment): string[] {

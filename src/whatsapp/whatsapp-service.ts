@@ -1,7 +1,8 @@
-import { ClaudeService } from '@/claude/claude-service';
+import { ClaudeService, ConversationContext } from '@/claude/claude-service';
 import { ConversationManager } from '@/claude/conversation-manager';
 import { config } from '@/config/environment';
 import { log, logger } from '@/shared/logger';
+import { BusinessHoursService } from '@/services/business-hours-service';
 import type { WhatsAppMessage } from '@/types/whatsapp';
 import { BaileysClient } from './baileys-client';
 
@@ -9,12 +10,14 @@ export class WhatsAppService {
   private baileysClient: BaileysClient;
   private claudeService: ClaudeService;
   private conversationManager: ConversationManager;
+  private businessHoursService: BusinessHoursService;
   private processingMessages: Set<string> = new Set();
 
   constructor() {
     this.baileysClient = new BaileysClient();
     this.claudeService = new ClaudeService();
     this.conversationManager = new ConversationManager();
+    this.businessHoursService = new BusinessHoursService();
   }
 
   public async initialize(): Promise<void> {
@@ -118,6 +121,9 @@ export class WhatsAppService {
       // Show typing indicator
       await this.sendTypingIndicator(message.from);
       
+      // Check business hours first
+      const businessStatus = await this.businessHoursService.getCurrentStatus();
+      
       // Get or create conversation context
       const conversation = await this.conversationManager.addMessage(
         message.from,
@@ -125,7 +131,27 @@ export class WhatsAppService {
         message.body
       );
 
-      // Process with Claude
+      // If shop is closed and this is a new conversation or specific inquiry, send business hours info
+      if (!businessStatus.isOpen && this.shouldSendBusinessHoursInfo(message.body, conversation)) {
+        const businessHoursMessage = await this.businessHoursService.getStatusMessage();
+        await this.sendMessage(message.from, businessHoursMessage);
+        
+        // Log business hours interaction
+        logger.info('Business hours message sent', {
+          from: message.from,
+          isOpen: businessStatus.isOpen,
+          currentTime: businessStatus.currentTime
+        });
+        
+        // Still process with Claude but with business hours context
+        if (!conversation.metadata) {
+          conversation.metadata = {};
+        }
+        conversation.metadata.businessHoursStatus = businessStatus;
+        conversation.metadata.sentBusinessHoursInfo = true;
+      }
+
+      // Process with Claude (with business hours context if shop is closed)
       const { response, newState } = await this.claudeService.processMessage(
         message.body,
         conversation
@@ -135,8 +161,10 @@ export class WhatsAppService {
       await this.conversationManager.addMessage(message.from, 'assistant', response);
       await this.conversationManager.updateState(message.from, newState);
 
-      // Send response
-      await this.sendMessage(message.from, response);
+      // Send response (only if we haven't already sent business hours message for simple inquiries)
+      if (businessStatus.isOpen || !this.isSimpleBusinessHoursInquiry(message.body)) {
+        await this.sendMessage(message.from, response);
+      }
 
       // Log successful interaction
       logger.info('Message processed successfully', {
@@ -144,6 +172,7 @@ export class WhatsAppService {
         messageLength: message.body.length,
         responseLength: response.length,
         state: newState,
+        businessOpen: businessStatus.isOpen
       });
 
     } catch (error) {
@@ -157,6 +186,39 @@ export class WhatsAppService {
     } finally {
       this.processingMessages.delete(message.id);
     }
+  }
+
+  private shouldSendBusinessHoursInfo(messageBody: string, conversation: ConversationContext): boolean {
+    // Only send business hours info when specifically asked about shipping/delivery times
+    // NOT automatically for new conversations or general orders
+    
+    const lowerBody = messageBody.toLowerCase();
+    const specificShippingKeywords = [
+      'jam pengiriman', 'kapan dikirim', 'waktu pengiriman', 'jadwal kirim',
+      'jam operasional', 'jam kerja pengiriman', 'kapan sampai'
+    ];
+    
+    const isAskingSpecificShippingInfo = specificShippingKeywords.some(keyword => 
+      lowerBody.includes(keyword)
+    );
+    
+    const alreadySentInfo = conversation.metadata?.sentBusinessHoursInfo;
+    
+    // Only send if specifically asking about shipping times and haven't sent before
+    return isAskingSpecificShippingInfo && !alreadySentInfo;
+  }
+
+  private isSimpleBusinessHoursInquiry(messageBody: string): boolean {
+    // Check if this is just asking about business hours and nothing else
+    const lowerBody = messageBody.toLowerCase();
+    const simpleInquiries = [
+      'jam berapa', 'kapan buka', 'kapan tutup', 'jam operasional', 
+      'jam kerja', 'buka jam berapa', 'tutup jam berapa'
+    ];
+    
+    return simpleInquiries.some(inquiry => 
+      lowerBody.includes(inquiry) && lowerBody.length < 50
+    );
   }
 
   private async sendTypingIndicator(to: string): Promise<void> {
