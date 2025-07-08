@@ -6,7 +6,7 @@ export interface ClaudeRequest {
   model: string;
   max_tokens: number;
   messages: ClaudeMessage[];
-  system?: string;
+  system?: string | CachedSystemPrompt[];
   temperature?: number;
 }
 
@@ -38,4 +38,44 @@ export interface ClaudePromptContext {
   productCatalog: Product[];
   conversationHistory: ConversationMessage[];
   currentIntent?: string;
+}
+
+// Prompt Caching Interfaces
+export interface CachedSystemPrompt {
+  type: "text";
+  text: string;
+  cache_control?: CacheControl;
+}
+
+export interface CacheControl {
+  type: "ephemeral";
+}
+
+export interface PromptCacheMetrics {
+  totalCalls: number;
+  cacheHits: number;
+  cacheMisses: number;
+  cacheHitRate: number;
+  totalTokensSaved: number;
+  costSavings: number;
+}
+
+export interface TokenUsageBreakdown {
+  staticPromptTokens: number;
+  dynamicContextTokens: number;
+  conversationHistoryTokens: number;
+  productRecommendationTokens: number;
+  totalInputTokens: number;
+  outputTokens: number;
+  isCacheHit: boolean;
+}
+
+export interface OptimizedSystemPrompt {
+  staticPrompt: CachedSystemPrompt;
+  dynamicContext: CachedSystemPrompt;
+  estimatedTokens: {
+    static: number;
+    dynamic: number;
+    total: number;
+  };
 }

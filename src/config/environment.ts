@@ -16,6 +16,13 @@ interface Config {
   claudeApiKey: string;
   claudeModel: string;
   claudeMaxTokens: number;
+  
+  // Token Optimization
+  enablePromptCaching: boolean;
+  conversationCompressionLevel: number;
+  orderCompressionLevel: number;
+  tokenOptimizationMode: boolean;
+  preserveCustomerDetails: boolean;
 
   // Redis
   redisHost: string;
@@ -61,6 +68,13 @@ const config: Config = {
   claudeApiKey: process.env.CLAUDE_API_KEY || '',
   claudeModel: process.env.CLAUDE_MODEL || 'claude-3-sonnet-20240229',
   claudeMaxTokens: parseInt(process.env.CLAUDE_MAX_TOKENS || '4000', 10),
+  
+  // Token Optimization
+  enablePromptCaching: process.env.ENABLE_PROMPT_CACHING === 'true' || true, // Default enabled
+  conversationCompressionLevel: parseInt(process.env.CONVERSATION_COMPRESSION_LEVEL || '4', 10),
+  orderCompressionLevel: parseInt(process.env.ORDER_COMPRESSION_LEVEL || '8', 10), // More history during orders
+  tokenOptimizationMode: process.env.TOKEN_OPTIMIZATION_MODE === 'true' || true, // Default enabled
+  preserveCustomerDetails: process.env.PRESERVE_CUSTOMER_DETAILS !== 'false', // Default enabled
 
   // Redis
   redisHost: process.env.REDIS_HOST || 'localhost',

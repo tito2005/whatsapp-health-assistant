@@ -9,6 +9,10 @@ import { DietPlanningService, DietProfile, DietGoal, PersonalizedRecommendation 
 // import { BusinessHoursService } from '@/services/business-hours-service';
 import { BusinessStatus } from '@/types/business-hours';
 import personalStyle, { getRandomPhrase, formatPrice } from '@/config/personal-style';
+import { PromptCacheService } from './prompt-cache';
+import { ConversationSummarizer } from './conversation-summarizer';
+import { TokenAnalyticsService } from './token-analytics';
+import { ConversationFlowController, FlowContextSummary } from './conversation-flow-controller';
 import Anthropic from '@anthropic-ai/sdk';
 import { MessageParam } from '@anthropic-ai/sdk/resources';
 
@@ -53,8 +57,10 @@ export enum ConversationState {
   GREETING = 'greeting',
   HEALTH_INQUIRY = 'health_inquiry',
   PRODUCT_RECOMMENDATION = 'product_recommendation',
+  DIET_CONSULTATION = 'diet_consultation',
   ORDER_COLLECTION = 'order_collection',
   ORDER_CONFIRMATION = 'order_confirmation',
+  CONVERSATION_COMPLETE = 'conversation_complete',
   GENERAL_SUPPORT = 'general_support',
 }
 /* eslint-enable no-unused-vars */
@@ -65,6 +71,10 @@ export class ClaudeService {
   private productService: ProductService;
   private orderService: OrderService;
   private dietPlanningService: DietPlanningService;
+  private promptCacheService: PromptCacheService;
+  private conversationSummarizer: ConversationSummarizer;
+  private tokenAnalyticsService: TokenAnalyticsService;
+  private conversationFlowController: ConversationFlowController;
   // private businessHoursService: BusinessHoursService;
 
   constructor() {
@@ -75,9 +85,13 @@ export class ClaudeService {
     this.productService = new ProductService();
     this.orderService = new OrderService();
     this.dietPlanningService = new DietPlanningService();
+    this.promptCacheService = PromptCacheService.getInstance();
+    this.conversationSummarizer = ConversationSummarizer.getInstance();
+    this.tokenAnalyticsService = TokenAnalyticsService.getInstance();
+    this.conversationFlowController = ConversationFlowController.getInstance();
     // this.businessHoursService = new BusinessHoursService();
     this.baseSystemPrompt = this.loadBaseSystemPrompt();
-    log.startup('Claude service initialized with product integration, order processing, and business hours');
+    log.startup('Claude service initialized with conversation flow control, token optimization, and order processing');
   }
 
   private loadBaseSystemPrompt(): string {
@@ -267,16 +281,33 @@ DISCLAIMER POLICY: Medical disclaimers will be automatically added only when col
       // Get product recommendations if health concerns are identified or general inquiry
       const recommendations = await this.getRelevantRecommendations(healthAssessment, context, message);
       
-      // Build dynamic system prompt with current product data and real-time context
-      const systemPrompt = await this.buildDynamicSystemPrompt(recommendations, context, true);
+      // Generate conversation flow context summary
+      const flowContext = this.conversationFlowController.generateFlowContextSummary(context);
+      
+      // Generate optimized system prompt with caching and flow context
+      const optimizedPrompt = this.promptCacheService.generateOptimizedPrompt(
+        recommendations, 
+        context, 
+        true,
+        flowContext
+      );
       
       // Build conversation history with smart compression
-      const messages: MessageParam[] = [
-        ...this.compressConversationHistory(context.messages, context.metadata?.userPreferences?.communicationStyle === 'brief'),
-        { role: 'user', content: message }
-      ];
+      const originalMessages = [...context.messages, { role: 'user', content: message } as MessageParam];
+      const compressedMessages = config.tokenOptimizationMode 
+        ? this.conversationSummarizer.compressConversationHistory(
+            originalMessages, 
+            context, 
+            config.conversationCompressionLevel
+          )
+        : originalMessages;
 
-      // Call Claude API with dynamic context and response optimization
+      // Use cached system prompt if enabled
+      const systemPrompt = config.enablePromptCaching 
+        ? [optimizedPrompt.staticPrompt, optimizedPrompt.dynamicContext]
+        : await this.buildDynamicSystemPrompt(recommendations, context, true, flowContext);
+
+      // Call Claude API with optimized context
       const isBriefPreferred = personalStyle.responseLength === 'brief' || context.metadata?.userPreferences?.communicationStyle === 'brief';
       const maxTokens = isBriefPreferred ? 100 : Math.min(config.claudeMaxTokens || 1000, 200);
       const completion = await this.anthropic.messages.create({
@@ -284,16 +315,40 @@ DISCLAIMER POLICY: Medical disclaimers will be automatically added only when col
         max_tokens: maxTokens,
         temperature: 0.7,
         system: systemPrompt,
-        messages: messages,
+        messages: compressedMessages,
       });
 
       const duration = Date.now() - startTime;
       log.api.response('claude', 200, duration);
-      log.perf('claude-api-call', duration, { 
+      
+      // Record cache usage and get token breakdown
+      const isCacheHit = config.enablePromptCaching && completion.usage.input_tokens < optimizedPrompt.estimatedTokens.total;
+      const tokensSaved = config.enablePromptCaching ? optimizedPrompt.estimatedTokens.static * 0.9 : 0; // 90% savings from cache
+      
+      this.promptCacheService.recordCacheUsage(isCacheHit, tokensSaved);
+      
+      const tokenBreakdown = this.promptCacheService.getTokenBreakdown(
+        optimizedPrompt,
+        compressedMessages.length * 50, // Estimate conversation tokens
+        completion.usage.output_tokens,
+        isCacheHit
+      );
+      
+      log.perf('claude-api-call-optimized', duration, { 
         inputTokens: completion.usage.input_tokens,
         outputTokens: completion.usage.output_tokens,
-        recommendationCount: recommendations.length
+        recommendationCount: recommendations.length,
+        cacheEnabled: config.enablePromptCaching,
+        compressionEnabled: config.tokenOptimizationMode,
+        originalMessageCount: originalMessages.length,
+        compressedMessageCount: compressedMessages.length,
+        estimatedTokenSavings: tokensSaved,
+        tokenBreakdown
       });
+
+      // Record analytics for monitoring and optimization tracking
+      const cacheMetrics = this.promptCacheService.getCacheMetrics();
+      this.tokenAnalyticsService.recordConversation(context.state, tokenBreakdown, cacheMetrics);
 
       // Extract response text
       const responseText = completion.content
@@ -305,7 +360,7 @@ DISCLAIMER POLICY: Medical disclaimers will be automatically added only when col
       this.updateConversationMemory(context, message, recommendations);
 
       // Determine new conversation state based on response
-      const newState = this.detectConversationState(message, responseText, context.state);
+      let newState = this.detectConversationState(message, responseText, context);
 
       // Log successful interaction with product context
       logger.info('Claude message processed with product integration', {
@@ -320,9 +375,35 @@ DISCLAIMER POLICY: Medical disclaimers will be automatically added only when col
 
       // Add disclaimer only when collecting shipping info (order process)
       const needsDisclaimer = this.shouldAddDisclaimer(newState, context, responseText);
-      const finalResponse = (hasDisclaimer(responseText) || !needsDisclaimer)
+      let finalResponse = (hasDisclaimer(responseText) || !needsDisclaimer)
         ? responseText 
         : addDisclaimerToResponse(responseText);
+
+      // Handle conversation closure for order confirmation
+      if (newState === ConversationState.ORDER_CONFIRMATION && 
+          context.metadata?.currentOrder?.isComplete) {
+        const closureMessage = this.conversationFlowController.generateClosureMessage(context);
+        finalResponse = closureMessage;
+        newState = ConversationState.CONVERSATION_COMPLETE;
+      }
+
+      // Handle order summary generation when customer info is complete
+      if (newState === ConversationState.ORDER_COLLECTION && 
+          context.metadata?.currentOrder) {
+        const orderResult = this.orderService.processCustomerInfo(
+          context.metadata.currentOrder, 
+          context.userId // Use userId as currentWhatsAppNumber
+        );
+        
+        if (orderResult.isComplete) {
+          finalResponse = orderResult.message;
+          // Update the order in context
+          context.metadata.currentOrder = orderResult.updatedOrder;
+          context.metadata.currentOrder.isComplete = true;
+        } else if (orderResult.needsAddressValidation) {
+          finalResponse = orderResult.message;
+        }
+      }
 
       return {
         response: finalResponse,
@@ -358,41 +439,14 @@ DISCLAIMER POLICY: Medical disclaimers will be automatically added only when col
   private detectConversationState(
     userMessage: string,
     aiResponse: string,
-    currentState: ConversationState
+    context: ConversationContext
   ): ConversationState {
-    const lowerMessage = userMessage.toLowerCase();
-    const lowerResponse = aiResponse.toLowerCase();
-
-    // Check for order-related keywords
-    if (lowerMessage.includes('pesan') || lowerMessage.includes('order') || 
-        lowerMessage.includes('beli') || lowerResponse.includes('alamat lengkap')) {
-      return ConversationState.ORDER_COLLECTION;
-    }
-
-    // Check for health consultation
-    if (lowerMessage.includes('sakit') || lowerMessage.includes('keluhan') ||
-        lowerMessage.includes('diabetes') || lowerMessage.includes('diet')) {
-      return ConversationState.HEALTH_INQUIRY;
-    }
-
-    // Check for product inquiry
-    if (lowerMessage.includes('produk') || lowerMessage.includes('harga') ||
-        lowerMessage.includes('manfaat') || lowerResponse.includes('saya rekomendasikan')) {
-      return ConversationState.PRODUCT_RECOMMENDATION;
-    }
-
-    // Check for order confirmation
-    if (lowerResponse.includes('konfirmasi pesanan') || 
-        lowerResponse.includes('total pesanan')) {
-      return ConversationState.ORDER_CONFIRMATION;
-    }
-
-    // Default state progression
-    if (currentState === ConversationState.GREETING) {
-      return ConversationState.GENERAL_SUPPORT;
-    }
-
-    return currentState;
+    // Use the flow controller for enhanced conversation state detection
+    return this.conversationFlowController.detectConversationFlow(
+      userMessage, 
+      aiResponse, 
+      context
+    );
   }
 
   public async generateQuickReply(_state: ConversationState): Promise<string[]> {
@@ -566,12 +620,17 @@ DISCLAIMER POLICY: Medical disclaimers will be automatically added only when col
     }
   }
 
-  private async buildDynamicSystemPrompt(recommendations: ProductRecommendation[], context?: ConversationContext, includeRealTime: boolean = false): Promise<string> {
+  private async buildDynamicSystemPrompt(recommendations: ProductRecommendation[], context?: ConversationContext, includeRealTime: boolean = false, flowContext?: FlowContextSummary): Promise<string> {
     const userPrefs = context?.metadata?.userPreferences;
     const isShortResponse = userPrefs?.communicationStyle === 'brief';
     
     // Base optimized prompt with real-time context if needed
     let prompt = includeRealTime ? this.getBasePromptWithRealTime(isShortResponse) : this.getOptimizedBasePrompt(isShortResponse);
+    
+    // Add conversation flow context
+    if (flowContext) {
+      prompt += this.buildFlowContext(flowContext);
+    }
     
     // Add conversation memory context
     if (context?.metadata) {
@@ -724,6 +783,64 @@ RULE: Cuma recommend produk dari list PRODUK YANG BISA BANTU di bawah. Never sug
     
     if (metadata?.keyPoints?.length > 0) {
       context += `\nKEY POINTS: ${metadata.keyPoints.slice(-2).join('; ')}`;
+    }
+    
+    return context;
+  }
+
+  private buildFlowContext(flowContext: FlowContextSummary): string {
+    let context = '\n\nCONVERSATION FLOW CONTEXT:\n';
+    
+    // Stage and progress information
+    context += `Current Stage: ${flowContext.stage.current} (${flowContext.stage.progress}% complete)\n`;
+    context += `Summary: ${flowContext.conversationSummary}\n`;
+    
+    // Next expected stages
+    if (flowContext.stage.nextExpected.length > 0) {
+      context += `Next Expected: ${flowContext.stage.nextExpected.join(' or ')}\n`;
+    }
+    
+    // Customer profile information
+    if (flowContext.customerProfile.healthConcerns?.length) {
+      context += `Health Concerns: ${flowContext.customerProfile.healthConcerns.join(', ')}\n`;
+    }
+    
+    if (flowContext.customerProfile.dietGoals?.length) {
+      context += `Diet Goals: ${flowContext.customerProfile.dietGoals.join(', ')}\n`;
+    }
+    
+    if (flowContext.customerProfile.eatingHabits) {
+      const habits = flowContext.customerProfile.eatingHabits;
+      context += `Eating Habits: ${habits.mealsPerDay || 3} meals/day`;
+      if (habits.hasSnacks) context += ', has snacks';
+      if (habits.restrictions?.length) context += `, restrictions: ${habits.restrictions.join(', ')}`;
+      context += '\n';
+    }
+    
+    // Order progress
+    if (flowContext.orderProgress) {
+      const order = flowContext.orderProgress;
+      context += `Order Status: `;
+      if (order.hasItems) context += 'has items, ';
+      if (order.customerInfoComplete) context += 'customer info complete, ';
+      if (order.readyForConfirmation) context += 'ready for confirmation';
+      context += '\n';
+    }
+    
+    // Flow-specific instructions based on stage
+    switch (flowContext.stage.current) {
+      case ConversationState.DIET_CONSULTATION:
+        context += '\nFOCUS: Act as a nutritionist. Ask about eating habits, meal frequency, snack preferences. Provide meal plans using our products.\n';
+        break;
+      case ConversationState.ORDER_COLLECTION:
+        context += '\nFOCUS: Collect customer information (name, address, phone). Use order summary when complete.\n';
+        break;
+      case ConversationState.ORDER_CONFIRMATION:
+        context += '\nFOCUS: Confirm order details and process. End with closure message when confirmed.\n';
+        break;
+      case ConversationState.CONVERSATION_COMPLETE:
+        context += '\nFOCUS: Conversation is complete. Only respond to new questions or requests.\n';
+        break;
     }
     
     return context;
@@ -1130,27 +1247,6 @@ RULE: Cuma recommend produk dari list PRODUK YANG BISA BANTU di bawah. Never sug
     return matrix[str2.length]![str1.length]!;
   }
 
-  // Phase 4: Conversation Compression for Token Optimization
-  private compressConversationHistory(messages: MessageParam[], preferBrief: boolean = false): MessageParam[] {
-    // Keep only the most recent messages to save tokens
-    const maxMessages = preferBrief ? 4 : 8;
-    
-    if (messages.length <= maxMessages) {
-      return messages;
-    }
-    
-    // Keep first greeting exchange and recent messages
-    const firstMessages = messages.slice(0, 2); // Usually greeting
-    const recentMessages = messages.slice(-maxMessages + 2);
-    
-    // Add a summary message if we're compressing
-    const summaryMessage: MessageParam = {
-      role: 'assistant',
-      content: '[Previous conversation summarized for efficiency]'
-    };
-    
-    return [...firstMessages, summaryMessage, ...recentMessages];
-  }
 
   // Phase 3: Reference Detection and Memory Management
   private isReferringToPrevious(message: string): boolean {
@@ -1729,5 +1825,47 @@ RULE: Cuma recommend produk dari list PRODUK YANG BISA BANTU di bawah. Never sug
     message += `💡 **Mau konsultasi lebih detail tentang rencana diet ini?**`;
     
     return message;
+  }
+
+  /**
+   * Get comprehensive optimization metrics
+   */
+  public getOptimizationMetrics(): {
+    cacheMetrics: any;
+    analytics: any;
+    costProjections: any;
+    efficiencyMetrics: any;
+    optimizationStatus: {
+      promptCachingEnabled: boolean;
+      conversationCompressionEnabled: boolean;
+      compressionLevel: number;
+    };
+  } {
+    return {
+      cacheMetrics: this.promptCacheService.getCacheMetrics(),
+      analytics: this.tokenAnalyticsService.getAnalytics(),
+      costProjections: this.tokenAnalyticsService.getCostProjections(),
+      efficiencyMetrics: this.tokenAnalyticsService.getEfficiencyMetrics(),
+      optimizationStatus: {
+        promptCachingEnabled: config.enablePromptCaching,
+        conversationCompressionEnabled: config.tokenOptimizationMode,
+        compressionLevel: config.conversationCompressionLevel
+      }
+    };
+  }
+
+  /**
+   * Reset optimization metrics (useful for testing)
+   */
+  public resetOptimizationMetrics(): void {
+    this.promptCacheService.resetMetrics();
+    this.tokenAnalyticsService.reset();
+  }
+
+  /**
+   * Get conversation patterns for analysis
+   */
+  public getConversationPatterns(): any {
+    return this.tokenAnalyticsService.getConversationPatterns();
   }
 }

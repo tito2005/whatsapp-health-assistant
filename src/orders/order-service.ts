@@ -4,9 +4,11 @@ import { ProductRecommendation } from '@/types/product';
 import { OrderRepository } from '@/orders/order-repository';
 import { retryDatabaseOperation } from '@/shared/retry';
 import { ChatbotErrorHandler } from '@/shared/error-handler';
+import { OrderSummaryService } from '@/orders/order-summary-service';
 
 export class OrderService {
   private orderRepository: OrderRepository;
+  private orderSummaryService: OrderSummaryService;
   
   // Define shipping zones and their rules
   private shippingZones: ShippingZone[] = [
@@ -70,7 +72,8 @@ export class OrderService {
 
   constructor() {
     this.orderRepository = new OrderRepository();
-    log.startup('OrderService initialized with database persistence');
+    this.orderSummaryService = OrderSummaryService.getInstance();
+    log.startup('OrderService initialized with database persistence and order summary service');
   }
 
   public createNewOrder(): OrderCollection {
@@ -412,6 +415,126 @@ export class OrderService {
       return {
         success: false,
         message: errorMessage
+      };
+    }
+  }
+
+  /**
+   * Generate order summary with auto-filled phone number
+   */
+  public generateOrderSummary(
+    order: OrderCollection, 
+    currentWhatsAppNumber?: string,
+    format: 'simple' | 'detailed' = 'simple'
+  ): string {
+    return this.orderSummaryService.generateOrderSummary(
+      order, 
+      currentWhatsAppNumber, 
+      { format }
+    );
+  }
+
+  /**
+   * Validate Batam address for completeness
+   */
+  public validateAddress(address: string) {
+    return this.orderSummaryService.validateBatamAddress(address);
+  }
+
+  /**
+   * Generate address validation message
+   */
+  public generateAddressValidationMessage(address: string): string {
+    const validation = this.validateAddress(address);
+    return this.orderSummaryService.generateAddressValidationMessage(validation, address);
+  }
+
+  /**
+   * Check if order has complete customer information
+   */
+  public hasCompleteCustomerInfo(order: OrderCollection, currentWhatsAppNumber?: string): boolean {
+    return this.orderSummaryService.hasCompleteCustomerInfo(order, currentWhatsAppNumber);
+  }
+
+  /**
+   * Get missing customer information
+   */
+  public getMissingCustomerInfo(order: OrderCollection, currentWhatsAppNumber?: string): string[] {
+    return this.orderSummaryService.getMissingCustomerInfo(order, currentWhatsAppNumber);
+  }
+
+  /**
+   * Auto-fill phone number from current WhatsApp number
+   */
+  public autoFillPhoneNumber(order: OrderCollection, currentWhatsAppNumber: string): OrderCollection {
+    return this.orderSummaryService.autoFillPhoneNumber(order, currentWhatsAppNumber);
+  }
+
+  /**
+   * Generate customer info complete message with order summary
+   */
+  public generateCustomerInfoCompleteMessage(order: OrderCollection): string {
+    return this.orderSummaryService.generateCustomerInfoCompleteMessage(order);
+  }
+
+  /**
+   * Process customer information and generate appropriate response
+   */
+  public processCustomerInfo(
+    order: OrderCollection, 
+    currentWhatsAppNumber?: string
+  ): { 
+    isComplete: boolean; 
+    message: string; 
+    updatedOrder: OrderCollection;
+    needsAddressValidation?: boolean;
+  } {
+    // Auto-fill phone number if not provided
+    const updatedOrder = currentWhatsAppNumber 
+      ? this.autoFillPhoneNumber(order, currentWhatsAppNumber)
+      : order;
+
+    // Check if customer info is complete
+    const isComplete = this.hasCompleteCustomerInfo(updatedOrder, currentWhatsAppNumber);
+    
+    if (isComplete) {
+      // Generate completion message with summary
+      const message = this.generateCustomerInfoCompleteMessage(updatedOrder);
+      return {
+        isComplete: true,
+        message,
+        updatedOrder
+      };
+    } else {
+      // Check if address needs validation
+      let needsAddressValidation = false;
+      let message = '';
+
+      if (updatedOrder.address && updatedOrder.address.trim().length >= 10) {
+        const addressValidation = this.validateAddress(updatedOrder.address);
+        if (!addressValidation.isValid) {
+          needsAddressValidation = true;
+          message = this.generateAddressValidationMessage(updatedOrder.address);
+        }
+      }
+
+      if (!needsAddressValidation) {
+        // Generate message for missing info
+        const missingInfo = this.getMissingCustomerInfo(updatedOrder, currentWhatsAppNumber);
+        if (missingInfo.length > 0) {
+          message = `Untuk melanjutkan pesanan, saya perlu informasi berikut:\n\n`;
+          missingInfo.forEach((info, index) => {
+            message += `${index + 1}. ${info}\n`;
+          });
+          message += `\nMohon berikan informasi yang diperlukan ya Kak 😊`;
+        }
+      }
+
+      return {
+        isComplete: false,
+        message,
+        updatedOrder,
+        needsAddressValidation
       };
     }
   }
