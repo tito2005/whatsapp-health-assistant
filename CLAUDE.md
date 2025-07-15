@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+> **Note**: This is a development assistance file for Claude Code IDE integration. It contains technical documentation and development workflows for the WhatsApp Health Assistant project.
+
 ## Development Commands
 
 ### Core Development
