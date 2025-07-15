@@ -20,49 +20,49 @@ export class ResponseOptimizer {
   // Token budgets for different conversation states
   private readonly STATE_BUDGETS: Record<ConversationState, ResponseFormat> = {
     [ConversationState.GREETING]: {
-      maxTokens: 50,
+      maxTokens: 100,
       structure: 'natural',
       style: 'casual',
       includeEmoji: true
     },
     [ConversationState.HEALTH_INQUIRY]: {
-      maxTokens: 150,
+      maxTokens: 300,
       structure: 'natural',
       style: 'professional',
       includeEmoji: true
     },
     [ConversationState.PRODUCT_RECOMMENDATION]: {
-      maxTokens: 180,
+      maxTokens: 600,
       structure: 'structured',
       style: 'professional',
       includeEmoji: true
     },
     [ConversationState.DIET_CONSULTATION]: {
-      maxTokens: 250,
+      maxTokens: 400,
       structure: 'structured',
       style: 'professional',
       includeEmoji: true
     },
     [ConversationState.ORDER_COLLECTION]: {
-      maxTokens: 120,
+      maxTokens: 350,
       structure: 'structured',
       style: 'brief',
       includeEmoji: true
     },
     [ConversationState.ORDER_CONFIRMATION]: {
-      maxTokens: 200,
+      maxTokens: 500,
       structure: 'json',
       style: 'detailed',
       includeEmoji: true
     },
     [ConversationState.CONVERSATION_COMPLETE]: {
-      maxTokens: 80,
+      maxTokens: 150,
       structure: 'natural',
       style: 'brief',
       includeEmoji: true
     },
     [ConversationState.GENERAL_SUPPORT]: {
-      maxTokens: 100,
+      maxTokens: 200,
       structure: 'natural',
       style: 'casual',
       includeEmoji: true

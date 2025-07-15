@@ -335,14 +335,8 @@ export class ConversationFlowController {
   /**
    * Generate conversation closure message
    */
-  public generateClosureMessage(context: ConversationContext): string {
-    const order = context.metadata?.currentOrder;
-    
-    if (order && order.customerName) {
-      return `Terima kasih sudah order ya ${order.customerName}! 🙏\n\nPesanan Anda akan segera diproses. Sehat selalu Kak! 😊\n\nJika ada pertanyaan lain, jangan ragu untuk chat lagi ya! 💪`;
-    } else {
-      return `Terima kasih sudah order! 🙏\n\nPesanan Anda akan segera diproses. Sehat selalu Kak! 😊\n\nJika ada pertanyaan lain, jangan ragu untuk chat lagi ya! 💪`;
-    }
+  public generateClosureMessage(_context: ConversationContext): string {
+    return `Baik kak, orderannya kita proses ya terima kasih 😊`;
   }
 
   /**

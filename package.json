@@ -17,7 +17,6 @@
     "format": "prettier --write src/**/*.ts",
     "type-check": "tsc --noEmit",
     "clean": "rm -rf dist",
-    
     "db:setup": "ts-node -r tsconfig-paths/register scripts/setup-database.ts setup",
     "db:setup:safe": "ts-node -r tsconfig-paths/register scripts/setup-database-only.ts setup",
     "db:setup:isolated": "ts-node -r tsconfig-paths/register scripts/setup-db-isolated.ts setup",
@@ -32,24 +31,29 @@
     "db:summary:safe": "ts-node -r tsconfig-paths/register scripts/setup-database-only.ts summary",
     "db:summary:isolated": "ts-node -r tsconfig-paths/register scripts/setup-db-isolated.ts summary",
     "db:check": "ts-node -r tsconfig-paths/register scripts/setup-database.ts check",
-    
+    "db:reset:products": "ts-node -r tsconfig-paths/register scripts/reset-database.ts clear-products",
+    "db:reset:all": "ts-node -r tsconfig-paths/register scripts/reset-database.ts clear-all",
+    "db:reset:full": "ts-node -r tsconfig-paths/register scripts/reset-database.ts reset",
+    "db:backup": "ts-node -r tsconfig-paths/register scripts/reset-database.ts backup",
+    "db:count": "ts-node -r tsconfig-paths/register scripts/reset-database.ts count",
     "products:validate": "ts-node -r tsconfig-paths/register scripts/seed-products.ts validate",
     "products:summary": "ts-node -r tsconfig-paths/register scripts/seed-products.ts summary",
-    
+    "products:force": "ts-node -r tsconfig-paths/register scripts/seed-products.ts force",
+    "products:update": "yarn db:reset:products && yarn db:seed:safe",
     "whatsapp:test": "ts-node -r tsconfig-paths/register scripts/test-whatsapp-connection.ts",
     "session:info": "ts-node -r tsconfig-paths/register scripts/session-manager.ts info",
     "session:clear": "ts-node -r tsconfig-paths/register scripts/session-manager.ts clear",
     "whatsapp:test:network": "ts-node -r tsconfig-paths/register scripts/test-whatsapp-connection.ts network",
     "whatsapp:test:full": "ts-node -r tsconfig-paths/register scripts/test-whatsapp-connection.ts full",
-    
     "setup:complete": "yarn install && yarn db:setup:isolated && yarn db:health:isolated",
     "setup:dev": "yarn install && yarn db:setup:isolated && yarn type-check && yarn lint",
-    
     "postinstall": "yarn build"
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",
     "@types/node": "^24.0.3",
+    "@types/node-cron": "^3.0.11",
+    "@types/nodemailer": "^6.4.17",
     "@types/pino": "^7.0.5",
     "@types/qrcode": "^1.5.5",
     "@typescript-eslint/eslint-plugin": "^8.34.1",
@@ -78,6 +82,8 @@
     "express": "^5.1.0",
     "express-rate-limit": "^7.5.1",
     "helmet": "^8.1.0",
+    "node-cron": "^4.2.1",
+    "nodemailer": "^7.0.5",
     "pino": "^9.7.0",
     "pino-pretty": "^13.0.0",
     "qrcode": "^1.5.4",

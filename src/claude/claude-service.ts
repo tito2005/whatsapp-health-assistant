@@ -13,6 +13,11 @@ import { PromptCacheService } from './prompt-cache';
 import { ConversationSummarizer } from './conversation-summarizer';
 import { TokenAnalyticsService } from './token-analytics';
 import { ConversationFlowController, FlowContextSummary } from './conversation-flow-controller';
+import { contextValidator, ValidationContext } from '@/validation/context-validator';
+import { adminNotificationService, EscalationData } from '@/admin/admin-notification-service';
+import { escalationQueueService } from '@/escalation/escalation-queue-service';
+import { businessHoursService } from '@/utils/business-hours';
+import { fallbackMessageService } from '@/validation/fallback-messages';
 import Anthropic from '@anthropic-ai/sdk';
 import { MessageParam } from '@anthropic-ai/sdk/resources';
 
@@ -197,6 +202,17 @@ ${personalStyle.responseExamples.outOfArea.map(example => `"${example}"`).join('
 - If unsure about details, say "Let me check that specific detail for you"
 - STICK STRICTLY to provided product database information
 
+🎯 VARIANT HANDLING RULES:
+- Spencer's MealBlend: 10 variants (Dark Choco, Cappuccino, Vanilla, Strawberry, Banana, Blueberry, Cookies & Cream, Pina Colada, Taro, Corn Flake) - CAN MIX
+- Flimty Fiber: 3 variants (Blackcurrant, Raspberry, Mango) - CAN MIX
+- mGanik Metafiber: 3 variants (Jeruk Yuzu, Cocopandan, Leci) - CANNOT MIX (tub format)
+- mGanik Superfood: 2 variants (Kurma, Labu) - CANNOT MIX (different formulations)
+- Hotto Purto + Hotto Mame: CAN MIX TOGETHER - 8 sachets Hotto Purto + 6 sachets Hotto Mame = 1 pouch
+- 3Peptide: Single flavor only
+
+ALWAYS ask customer to choose variant when they inquire about products with variants!
+SPECIAL: When customer asks about Hotto products, offer both individual and mixing options!
+
 Your main products:
 - HOTTO PURTO/MAME: Multi-benefit health drinks
 - Spencer's MealBlend: Weight loss meal replacement
@@ -209,7 +225,13 @@ User: "halo kak mau tanya tentang hotto purto"
 You: "Halo kak! Ada yang bisa dibantu? 😊"
 
 User: "untuk diabetes ada produk apa?"
-You: "Baik kak, untuk diabetes kita ada mganik metafiber ya 😊"
+You: "Baik kak, untuk diabetes kita ada mganik metafiber ya 😊 Ada 3 rasa: Jeruk Yuzu, Cocopandan, Leci. Pilih yang mana kak?"
+
+User: "mau spencer's mealblend"
+You: "Spencer's MealBlend ada 10 rasa kak: Dark Choco, Cappuccino, Vanilla, Strawberry, Banana, Blueberry, Cookies & Cream, Pina Colada, Taro, Corn Flake. Mau yang mana? Bisa mix rasa juga lho! 😊"
+
+User: "mau hotto purto"
+You: "Hotto Purto cocok buat asam lambung kak 😊 Mau pure Hotto Purto atau mix sama Hotto Mame? Kalau mix dapat 8 sachets Purto + 6 sachets Mame = 1 pouch lho!"
 
 User: "harga berapa?"
 You: "Mganik metafiber 1 tub 299k gratis ongkir ya kak 😊"
@@ -222,13 +244,17 @@ DISCLAIMER POLICY: Medical disclaimers will be automatically added only when col
   }
 
   private getCurrentTimeWIB(): { time: string; date: string; period: string } {
+    // Get current time in WIB timezone (UTC+7)
     const now = new Date();
-    const wibTime = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Jakarta" }));
+    const utcTime = now.getTime() + (now.getTimezoneOffset() * 60000);
+    const wibTime = new Date(utcTime + (7 * 3600000)); // Add 7 hours for WIB
     
+    // Get hours and minutes from WIB time
     const hours = wibTime.getHours();
     const minutes = wibTime.getMinutes();
     const timeString = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
     
+    // Get date in Indonesian format
     const dateString = wibTime.toLocaleDateString('id-ID', {
       weekday: 'long',
       year: 'numeric',
@@ -236,6 +262,7 @@ DISCLAIMER POLICY: Medical disclaimers will be automatically added only when col
       day: 'numeric'
     });
     
+    // Determine period based on WIB hours
     let period: string;
     if (hours >= 6 && hours < 11) {
       period = 'Pagi';
@@ -309,7 +336,7 @@ DISCLAIMER POLICY: Medical disclaimers will be automatically added only when col
 
       // Call Claude API with optimized context
       const isBriefPreferred = personalStyle.responseLength === 'brief' || context.metadata?.userPreferences?.communicationStyle === 'brief';
-      const maxTokens = isBriefPreferred ? 100 : Math.min(config.claudeMaxTokens || 1000, 200);
+      const maxTokens = isBriefPreferred ? 400 : Math.min(config.claudeMaxTokens || 1000, 800);
       const completion = await this.anthropic.messages.create({
         model: config.claudeModel,
         max_tokens: maxTokens,
@@ -355,6 +382,23 @@ DISCLAIMER POLICY: Medical disclaimers will be automatically added only when col
         .filter(block => block.type === 'text')
         .map(block => block.text)
         .join('\n');
+
+      // VALIDATION: Check response context validity before proceeding
+      const validationResult = await this.validateResponse(message, responseText, context);
+      
+      if (!validationResult.isValid && validationResult.shouldEscalate) {
+        // Response failed validation - escalate to admin
+        logger.warn('Response failed context validation - escalating', {
+          userId: context.userId,
+          userQuery: message,
+          aiResponse: responseText,
+          validationIssues: validationResult.issues,
+          confidence: validationResult.confidence
+        });
+
+        const escalationResult = await this.handleEscalation(message, responseText, context, validationResult);
+        return escalationResult;
+      }
 
       // Update conversation memory with current interaction
       this.updateConversationMemory(context, message, recommendations);
@@ -430,7 +474,7 @@ DISCLAIMER POLICY: Medical disclaimers will be automatically added only when col
 
       // Generic fallback
       return {
-        response: 'Maaf Kak, ada kendala teknis. Saya akan segera membantu Anda. Silakan coba lagi atau hubungi langsung ke ' + config.businessPhone,
+        response: `Maaf Kak, ada kendala teknis. Silakan coba lagi atau hubungi admin di ${config.businessPhone} atau ${config.businessPhone2} untuk bantuan langsung 😊`,
         newState: context.state,
       };
     }
@@ -662,6 +706,16 @@ DISCLAIMER POLICY: Medical disclaimers will be automatically added only when col
       topRecommendations.forEach((rec) => {
         const product = rec.product;
         prompt += `• ${product.name} - Rp ${product.price.toLocaleString('id-ID')}\n`;
+        
+        // Add variant information if available
+        if (product.metadata && (product.metadata as any).variant) {
+          const variants = (product.metadata as any).variant;
+          if (Array.isArray(variants) && variants.length > 0) {
+            prompt += `  Variants: ${variants.join(', ')}\n`;
+            prompt += `  Can mix: ${(product.metadata as any).canMix ? 'Yes' : 'No'}\n`;
+          }
+        }
+        
         prompt += `  Kenapa cocok: ${rec.reason}\n`;
         if (rec.benefits.length > 0) {
           prompt += `  Manfaat: ${rec.benefits.slice(0, 2).join(' & ')}\n`;
@@ -687,6 +741,26 @@ DISCLAIMER POLICY: Medical disclaimers will be automatically added only when col
             if (specs.texture) prompt += `  Texture: ${specs.texture}\n`;
             if (specs.color) prompt += `  Color: ${specs.color}\n`;
             if (specs.sweetness) prompt += `  Sweetness: ${specs.sweetness}\n`;
+          }
+          
+          // Variant information
+          if (meta.variant && meta.variant.length > 0) {
+            prompt += `  Available Variants: ${meta.variant.join(', ')}\n`;
+            if (meta.canMix) {
+              prompt += `  Mixing: Customer can mix different variants\n`;
+            } else {
+              prompt += `  Mixing: Cannot mix variants (single choice required)\n`;
+            }
+          }
+          
+          // Mixing options (for products that can mix with other products)
+          if (meta.mixingOptions && meta.canMix) {
+            prompt += `  Can Mix With: ${meta.mixingOptions.canMixWith.join(', ')}\n`;
+            if (meta.mixingOptions.mixingRatio) {
+              Object.entries(meta.mixingOptions.mixingRatio).forEach(([combo, ratio]) => {
+                prompt += `  Mixing Ratio: ${combo} - ${ratio}\n`;
+              });
+            }
           }
           
           // Nutritional information
@@ -717,7 +791,13 @@ DISCLAIMER POLICY: Medical disclaimers will be automatically added only when col
 - DO NOT invent flavors, colors, ingredients, or features not specified
 - If customer asks about details not listed, say "Let me check that specific detail for you"
 - NEVER assume product specifications beyond what's provided
-- Suggest naturally in conversation, explain benefits for their specific situation\n`;
+- Suggest naturally in conversation, explain benefits for their specific situation
+- FOR PRODUCTS WITH VARIANTS: Always ask customer to choose their preferred variant
+- FOR MIXABLE PRODUCTS: Inform customer they can mix different variants
+- FOR HOTTO PRODUCTS: Offer both individual and mixing options
+- EXAMPLE: "Spencer's MealBlend ada 10 rasa. Mau yang mana kak? Bisa mix rasa juga lho! 😊"
+- EXAMPLE: "Metafiber ada 3 rasa: Jeruk Yuzu, Cocopandan, Leci. Pilih satu ya kak 😊"
+- EXAMPLE: "Hotto Purto cocok buat asam lambung kak 😊 Mau pure Purto atau mix sama Mame? Mix dapat 8 sachets Purto + 6 sachets Mame = 1 pouch!"\n`;
     } else {
       prompt += '\n\nTidak ada produk yang cocok untuk kebutuhan ini.\n';
       prompt += 'Focus on: Kasih konsultasi umum, tanya lebih detail tentang goalnya, berikan tips diet/lifestyle yang praktis.\n';
@@ -732,6 +812,14 @@ DISCLAIMER POLICY: Medical disclaimers will be automatically added only when col
 STYLE: Natural, seperti teman yang peduli. Pakai bahasa casual Indonesian. Respon SINGKAT (1-2 kalimat) kecuali butuh penjelasan detail.
 APPROACH: Tanya goalnya → Dengar keluhannya → Kasih saran yang relevan → Tawarkan produk yang cocok secara natural
 NO: Numbered lists, formal language, menu options, "Silakan pilih"
+
+VARIANT RULES:
+- Spencer's MealBlend: 10 variants, CAN MIX - Always ask which flavors they want
+- Flimty Fiber: 3 variants (Blackcurrant, Raspberry, Mango), CAN MIX
+- mGanik Metafiber: 3 variants (Jeruk Yuzu, Cocopandan, Leci), CANNOT MIX
+- mGanik Superfood: 2 variants (Kurma, Labu), CANNOT MIX
+- Hotto Purto + Hotto Mame: CAN MIX TOGETHER (8 sachets Purto + 6 sachets Mame = 1 pouch)
+- 3Peptide: Single flavor only
 
 RULE: Cuma recommend produk dari list PRODUK YANG BISA BANTU di bawah. Never suggest anything else.`;
 
@@ -759,6 +847,14 @@ GREETINGS: Gunakan greeting sesuai waktu WIB (Pagi 06-10, Siang 11-14, Sore 15-1
 
 APPROACH: Tanya goalnya → Dengar keluhannya → Kasih saran yang relevan → Tawarkan produk yang cocok secara natural
 NO: Numbered lists, formal language, menu options, "Silakan pilih"
+
+VARIANT RULES:
+- Spencer's MealBlend: 10 variants, CAN MIX - Always ask which flavors they want
+- Flimty Fiber: 3 variants (Blackcurrant, Raspberry, Mango), CAN MIX
+- mGanik Metafiber: 3 variants (Jeruk Yuzu, Cocopandan, Leci), CANNOT MIX
+- mGanik Superfood: 2 variants (Kurma, Labu), CANNOT MIX
+- Hotto Purto + Hotto Mame: CAN MIX TOGETHER (8 sachets Purto + 6 sachets Mame = 1 pouch)
+- 3Peptide: Single flavor only
 
 RULE: Cuma recommend produk dari list PRODUK YANG BISA BANTU di bawah. Never suggest anything else.`;
 
@@ -1172,6 +1268,39 @@ RULE: Cuma recommend produk dari list PRODUK YANG BISA BANTU di bawah. Never sug
 
   private async findMentionedProductSmart(message: string, productNames: string[]): Promise<string | null> {
     const lowerMessage = message.toLowerCase();
+    
+    // Strategy 0: Enhanced product name patterns (mGanik specific)
+    const productPatterns = {
+      'mganik': ['mganik metafiber', 'mganik superfood', 'mganik 3peptide'],
+      'ganik': ['mganik metafiber', 'mganik superfood', 'mganik 3peptide'],
+      'metafiber': ['mganik metafiber'],
+      'superfood': ['mganik superfood'],
+      '3peptide': ['mganik 3peptide'],
+      'peptide': ['mganik 3peptide'],
+      'hotto': ['hotto purto', 'hotto mame'],
+      'purto': ['hotto purto'],
+      'mame': ['hotto mame'],
+      'spencer': ['spencer\'s mealblend'],
+      'mealblend': ['spencer\'s mealblend'],
+      'flimty': ['flimty fiber'],
+      'fiber': ['flimty fiber']
+    };
+    
+    for (const [pattern, candidates] of Object.entries(productPatterns)) {
+      if (lowerMessage.includes(pattern)) {
+        for (const candidate of candidates) {
+          const match = productNames.find(name => name.toLowerCase().includes(candidate));
+          if (match) {
+            logger.info('Pattern match found', { 
+              userInput: message, 
+              pattern: pattern,
+              matchedProduct: match
+            });
+            return match;
+          }
+        }
+      }
+    }
     
     // Strategy 1: Exact match (case insensitive)
     for (const name of productNames) {
@@ -1867,5 +1996,228 @@ RULE: Cuma recommend produk dari list PRODUK YANG BISA BANTU di bawah. Never sug
    */
   public getConversationPatterns(): any {
     return this.tokenAnalyticsService.getConversationPatterns();
+  }
+
+  // =====================================
+  // CONTEXT VALIDATION AND ESCALATION
+  // =====================================
+
+  /**
+   * Validate AI response context and quality
+   */
+  private async validateResponse(
+    userQuery: string, 
+    aiResponse: string, 
+    context: ConversationContext
+  ): Promise<any> {
+    try {
+      // Build conversation history for validation
+      const conversationHistory = context.messages.map(msg => ({
+        role: msg.role as 'user' | 'assistant',
+        content: typeof msg.content === 'string' ? msg.content : '',
+        timestamp: new Date()
+      }));
+
+      // Add current interaction
+      conversationHistory.push({
+        role: 'user',
+        content: userQuery,
+        timestamp: new Date()
+      });
+
+      const validationContext: ValidationContext = {
+        userQuery,
+        aiResponse,
+        conversationHistory: conversationHistory.slice(-5), // Last 5 messages for context
+        currentState: context.state,
+        mentionedProducts: context.metadata?.mentionedProducts || undefined,
+        expectedProduct: this.extractExpectedProduct(userQuery, context)
+      };
+
+      const validationResult = await contextValidator.validateResponse(validationContext);
+
+      // Log validation results for monitoring
+      logger.info('Response validation completed', {
+        userId: context.userId,
+        isValid: validationResult.isValid,
+        confidence: validationResult.confidence,
+        shouldEscalate: validationResult.shouldEscalate,
+        issueCount: validationResult.issues.length,
+        criticalIssues: validationResult.issues.filter(i => i.severity === 'critical').length
+      });
+
+      return validationResult;
+
+    } catch (error) {
+      logger.error('Response validation failed', {
+        userId: context.userId,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+
+      // Fail safe - if validation fails, assume response is invalid and escalate
+      return {
+        isValid: false,
+        confidence: 0,
+        issues: [{
+          type: 'validation_error',
+          severity: 'critical',
+          description: 'Validation system error'
+        }],
+        shouldEscalate: true
+      };
+    }
+  }
+
+  /**
+   * Extract expected product from user query context
+   */
+  private extractExpectedProduct(userQuery: string, context: ConversationContext): string | undefined {
+    // Check if user mentioned a specific product in their query
+    const queryLower = userQuery.toLowerCase();
+    
+    // Product name patterns
+    const productPatterns = {
+      'hotto purto': 'hotto purto',
+      'hotto mame': 'hotto mame', 
+      'purto': 'hotto purto',
+      'mame': 'hotto mame',
+      'metafiber': 'mganik metafiber',
+      'superfood': 'mganik superfood',
+      '3peptide': 'mganik 3peptide',
+      'peptide': 'mganik 3peptide',
+      'spencer': 'spencers mealblend',
+      'mealblend': 'spencers mealblend',
+      'flimty': 'flimty fiber'
+    };
+
+    for (const [pattern, product] of Object.entries(productPatterns)) {
+      if (queryLower.includes(pattern)) {
+        return product;
+      }
+    }
+
+    // Check conversation context for recent product mentions
+    if (context.metadata?.mentionedProducts && context.metadata.mentionedProducts.length > 0) {
+      return context.metadata.mentionedProducts[0];
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Handle escalation when response validation fails
+   */
+  private async handleEscalation(
+    userQuery: string,
+    aiResponse: string,
+    context: ConversationContext,
+    validationResult: any
+  ): Promise<{ response: string; newState: ConversationState }> {
+    try {
+      // Check business hours
+      const businessHoursStatus = businessHoursService.isBusinessHours();
+      
+      // Create escalation data
+      const escalationData: EscalationData = {
+        id: `esc_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        customerPhone: context.userId,
+        userQuery,
+        aiResponse,
+        validationResult,
+        conversationContext: context.messages.slice(-3).map(msg => ({
+          role: msg.role as 'user' | 'assistant',
+          content: typeof msg.content === 'string' ? msg.content : '',
+          timestamp: new Date()
+        })),
+        timestamp: new Date(),
+        status: 'pending',
+        businessHours: businessHoursStatus.isBusinessHours
+      };
+
+      // Queue or send escalation based on business hours
+      if (businessHoursStatus.isBusinessHours) {
+        // Business hours - send immediate notification
+        const notificationResult = await adminNotificationService.sendEscalationNotification(escalationData);
+        
+        if (notificationResult.success) {
+          logger.info('Immediate escalation notification sent', {
+            escalationId: escalationData.id,
+            customerPhone: context.userId
+          });
+        } else {
+          logger.error('Failed to send immediate escalation notification', {
+            escalationId: escalationData.id,
+            error: notificationResult.error
+          });
+        }
+      } else {
+        // Off-hours - queue for later processing
+        await escalationQueueService.queueEscalation(escalationData);
+        
+        logger.info('Escalation queued for off-hours processing', {
+          escalationId: escalationData.id,
+          customerPhone: context.userId,
+          nextBusinessHours: businessHoursStatus.nextBusinessTime
+        });
+      }
+
+      // Return fallback response to customer
+      const fallbackResponse = this.generateFallbackResponse(businessHoursStatus, userQuery);
+      
+      return {
+        response: fallbackResponse,
+        newState: context.state // Keep current state
+      };
+
+    } catch (error) {
+      logger.error('Escalation handling failed', {
+        userId: context.userId,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+
+      // Ultimate fallback
+      return {
+        response: `Maaf Kak, ada kendala teknis. Silakan coba lagi atau hubungi admin di ${config.businessPhone2} untuk bantuan langsung 😊`,
+        newState: context.state
+      };
+    }
+  }
+
+  /**
+   * Generate customer-facing fallback response
+   */
+  private generateFallbackResponse(businessHoursStatus: any, userQuery?: string): string {
+    if (userQuery) {
+      // Use polite escalation message tailored to the query
+      return fallbackMessageService.getPoliteEscalationMessage(userQuery);
+    }
+    
+    // Default technical issue message
+    const fallbackMessage = fallbackMessageService.getFallbackMessage(
+      'technical', 
+      businessHoursStatus.isBusinessHours
+    );
+    
+    return fallbackMessage.message;
+  }
+
+  /**
+   * Initialize validation services
+   */
+  public async initializeValidationServices(): Promise<void> {
+    try {
+      // Set WhatsApp service for admin notifications
+      // This will be set by the WhatsApp service when it initializes
+      logger.info('Validation services initialized');
+    } catch (error) {
+      logger.error('Failed to initialize validation services', { error });
+    }
+  }
+
+  /**
+   * Set WhatsApp service for admin notifications
+   */
+  public setWhatsAppService(whatsappService: any): void {
+    adminNotificationService.setWhatsAppService(whatsappService);
   }
 }

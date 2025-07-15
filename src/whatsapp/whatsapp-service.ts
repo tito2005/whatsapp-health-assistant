@@ -5,6 +5,7 @@ import { log, logger } from '@/shared/logger';
 import { BusinessHoursService } from '@/services/business-hours-service';
 import type { WhatsAppMessage } from '@/types/whatsapp';
 import { BaileysClient } from './baileys-client';
+import { adminNotificationService } from '@/admin/admin-notification-service';
 
 export class WhatsAppService {
   private baileysClient: BaileysClient;
@@ -25,13 +26,16 @@ export class WhatsAppService {
       // Initialize conversation manager first
       await this.conversationManager.initialize();
       
+      // Connect admin notification service to WhatsApp service for escalations
+      adminNotificationService.setWhatsAppService(this);
+      
       // Set up message handler before initializing Baileys
       this.baileysClient.setMessageHandler(this.processIncomingMessage.bind(this));
       
       // Initialize Baileys client
       await this.baileysClient.initialize();
       
-      log.startup('WhatsApp service initialized successfully');
+      log.startup('WhatsApp service initialized successfully with escalation support');
     } catch (error) {
       logger.error('Failed to initialize WhatsApp service', error);
       throw error;

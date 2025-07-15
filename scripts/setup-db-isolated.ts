@@ -273,15 +273,15 @@ const healthProducts = [
     description: 'Minuman kesehatan tinggi serat yang kaya akan nutrisi dan rendah kalori. Diformulasikan dengan ubi ungu, oat premium Swedia, dan 15 jenis multigrain.',
     price: 295000,
     discountPrice: 570000,
-    category: 'general_wellness',
+    category: 'weight_management',
     benefits: [
-      'Menurunkan kolesterol jahat (LDL) dengan beta-glucan oat Swedia',
-      'Menstabilkan gula darah tinggi',
-      'Mengatasi asam lambung (GERD & Maag)',
-      'Melancarkan pencernaan dengan 15 multigrain',
-      'Antioksidan tinggi dari ubi ungu (20x vitamin C)',
-      'Memberikan rasa kenyang lebih lama (cocok diet)',
-      'Meningkatkan imunitas tubuh'
+      'SANGAT EFEKTIF mengatasi asam lambung, GERD, dan maag kronis',
+      'Memberikan rasa kenyang lebih lama untuk program diet dan weight loss',
+      'Menurunkan berat badan secara alami dengan 15 multigrain premium',
+      'Praktis sebagai pengganti sarapan dan cemilan sehat rendah kalori',
+      'Mengontrol nafsu makan berlebihan dan mengurangi ngemil',
+      'Menenangkan lambung dan mengurangi produksi asam berlebih',
+      'Membantu membakar lemak dengan metabolisme yang lebih baik'
     ],
     ingredients: ['Ubi ungu', 'Oat premium Swedia', '15 jenis multigrain', 'Beta-glucan', '12 vitamin', '9 mineral'],
     suitableFor: ['Semua usia 5+', 'Penderita diabetes', 'Penderita kolesterol tinggi', 'Penderita GERD dan maag', 'Yang sedang diet', 'Ibu hamil dan menyusui'],
@@ -289,9 +289,33 @@ const healthProducts = [
     warnings: ['Minum air putih yang cukup setelah konsumsi'],
     images: ['hotto-purto-oat.jpg'],
     inStock: true,
-    healthConditions: ['kolesterol tinggi', 'diabetes', 'gula darah tinggi', 'asam lambung', 'GERD', 'maag'],
-    symptoms: ['kolesterol naik', 'gula darah tidak stabil', 'perut perih', 'heartburn', 'kembung'],
+    healthConditions: ['obesitas', 'berat badan berlebih', 'diet', 'weight loss', 'GERD', 'maag', 'asam lambung', 'heartburn', 'kolesterol tinggi', 'diabetes'],
+    symptoms: ['berat badan naik', 'susah turun berat badan', 'perut buncit', 'perut perih', 'asam lambung naik', 'heartburn', 'mual setelah makan', 'kembung'],
     metadata: { bundleDiscount: 20000, calories: 120 }
+  },
+  {
+    name: 'Hotto Mame',
+    description: 'Protein tinggi dengan edamame dan isolat protein whey untuk program diet dan weight loss yang efektif. SANGAT EFEKTIF untuk mengatasi asam lambung (GERD dan maag) berkat kandungan protein yang menenangkan lambung.',
+    price: 295000,
+    discountPrice: 570000,
+    category: 'weight_management',
+    benefits: [
+      'SANGAT EFEKTIF mengatasi asam lambung, GERD, dan maag dengan protein menenangkan',
+      'Tinggi protein berkualitas (9g per serving) untuk weight loss dan diet',
+      'Membakar lemak sambil mempertahankan massa otot',
+      'Rendah kalori hanya 120 kkal per serving - ideal untuk diet',
+      'Memberikan rasa kenyang lebih lama, mengurangi ngemil',
+      'Meningkatkan metabolisme untuk pembakaran lemak optimal',
+      'Praktis dikonsumsi kapan saja sebagai meal replacement'
+    ],
+    ingredients: ['Edamame berkualitas tinggi', 'Isolat protein whey premium', 'Multigrain pilihan', 'Oat beta-glucan'],
+    suitableFor: ['Program diet dan weight loss', 'Penderita GERD, maag, dan asam lambung', 'Fitness enthusiast dan program gym', 'Yang ingin turun berat badan sambil jaga massa otot'],
+    dosage: '1-2 serving per hari, sebaiknya sebelum atau sesudah aktivitas fisik',
+    images: ['hotto-mame-protein.jpg'],
+    inStock: true,
+    healthConditions: ['obesitas', 'berat badan berlebih', 'diet', 'weight loss', 'GERD', 'maag', 'asam lambung', 'heartburn'],
+    symptoms: ['berat badan naik', 'susah turun berat badan', 'perut buncit', 'perut perih', 'asam lambung naik', 'heartburn', 'mual setelah makan'],
+    metadata: { protein: '9g', fiber: '3g', calories: 120 }
   },
   {
     name: 'mGANIK METAFIBER',
@@ -313,6 +337,29 @@ const healthProducts = [
     healthConditions: ['diabetes tipe 2', 'pre-diabetes', 'gula darah tinggi'],
     symptoms: ['gula darah naik', 'sering haus', 'sering kencing'],
     metadata: { targetHbA1c: '<7%' }
+  },
+  {
+    name: 'mGanik Superfood',
+    description: 'Formula GlukoStabil revolusioner untuk meningkatkan sensitivitas insulin dan mengoptimalkan kesehatan pankreas dengan superfood daun kelor premium.',
+    price: 289000,
+    discountPrice: 560000,
+    category: 'diabetes_support',
+    benefits: [
+      'Meningkatkan sensitivitas insulin hingga 65% secara alami',
+      'Mengoptimalkan kesehatan dan fungsi pankreas (sel beta)',
+      'Formula GlukoStabil untuk stabilitas gula darah jangka panjang',
+      'Bebas laktosa dan kolesterol (aman untuk intoleransi)',
+      'Mengandung daun kelor superfood Indonesia (92 nutrisi)',
+      'Stabilisasi gula darah natural tanpa efek samping'
+    ],
+    ingredients: ['Multigrain khusus diabetes', 'Labu kuning organik', 'Daun kelor premium (Moringa oleifera)', 'Gymnema sylvestre extract'],
+    suitableFor: ['Diabetes tipe 2 dan komplikasinya', 'Pre-diabetes dan gangguan toleransi glukosa', 'Pankreas lemah atau terganggu', 'Insulin resistance syndrome'],
+    dosage: 'Maintenance: 1 sachet pagi sebelum sarapan. Terapi intensif: 2 sachet sehari',
+    images: ['mganik-superfood.jpg'],
+    inStock: true,
+    healthConditions: ['diabetes tipe 2', 'diabates', 'diabetes mellitus', 'kencing manis', 'gangguan pankreas', 'resistensi insulin'],
+    symptoms: ['gula darah tidak stabil', 'pankreas lemah', 'mudah lelah', 'metabolisme lambat', 'insulin tidak efektif'],
+    metadata: { lactoseFree: true, cholesterolFree: true, moringa: true }
   },
   {
     name: 'mGANIK 3PEPTIDE',
@@ -360,20 +407,23 @@ const healthProducts = [
     name: 'FLIMTY FIBER',
     description: 'Detox fiber dengan psyllium husk premium yang menyerap minyak, lemak, dan gula dari makanan.',
     price: 200000,
-    category: 'digestive_health',
+    category: 'weight_management',
     benefits: [
-      'Menyerap minyak, lemak, gula dari makanan',
-      'Efek kenyang hingga 30% lebih lama',
-      'Tinggi serat (5g per sachet)',
-      'Detox pencernaan'
+      'Menyerap minyak, lemak, dan gula dari makanan hingga 70%',
+      'Memberikan efek kenyang hingga 30% lebih lama (appetite suppressant)',
+      'Tinggi serat premium 5g per sachet untuk detox optimal',
+      'Detox pencernaan menyeluruh dan melancarkan BAB dalam 24 jam',
+      'Membantu menurunkan kolesterol LDL hingga 15% dalam 8 minggu',
+      'Meningkatkan metabolisme dan pembakaran lemak',
+      'Mengontrol gula darah post-meal'
     ],
     ingredients: ['Psyllium husk premium', 'Goji berry', 'Bit merah', 'Pomegranate'],
-    suitableFor: ['Detox pencernaan', 'Susah BAB', 'Kolesterol tinggi'],
+    suitableFor: ['Program detox pencernaan dan cleansing', 'Penderita sembelit kronis', 'Diet tinggi serat dan weight management', 'Program kontrol berat badan'],
     dosage: '1 sachet sebelum makan, 1-2x sehari',
     images: ['flimty-fiber.jpg'],
     inStock: true,
-    healthConditions: ['sembelit', 'kolesterol tinggi', 'pencernaan bermasalah'],
-    symptoms: ['susah BAB', 'perut kembung', 'kolesterol naik'],
+    healthConditions: ['sembelit', 'kolesterol tinggi', 'pencernaan bermasalah', 'detox', 'obesitas', 'berat badan berlebih', 'metabolisme lambat'],
+    symptoms: ['susah BAB', 'perut kembung', 'kolesterol naik', 'berat badan naik', 'susah turun berat', 'lemak menumpuk', 'perut buncit', 'mudah lapar'],
     metadata: { fiberContent: '5g' }
   }
 ];

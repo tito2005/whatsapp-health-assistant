@@ -160,21 +160,78 @@ export class ProductService {
       return true;
     }
 
+    // Fuzzy matching for typos (similarity > 80%)
+    if (this.calculateSimilarity(normalized1, normalized2) > 0.8) {
+      return true;
+    }
+
     // Indonesian health mapping
     const healthMappings = this.getIndonesianHealthMappings();
     
     for (const [indonesian, english] of Object.entries(healthMappings)) {
       if (english.length === 0) continue; // Skip if no English terms 
       
+      // Direct mapping match
       if (
         (normalized1.includes(indonesian) || (english[0] && normalized1.includes(english[0]))) &&
         (normalized2.includes(indonesian) || english.some(eng => normalized2.includes(eng)))
       ) {
         return true;
       }
+
+      // Fuzzy match against Indonesian term
+      if (this.calculateSimilarity(normalized1, indonesian) > 0.8 || 
+          this.calculateSimilarity(normalized2, indonesian) > 0.8) {
+        return true;
+      }
+
+      // Fuzzy match against English equivalents
+      for (const englishTerm of english) {
+        if (this.calculateSimilarity(normalized1, englishTerm) > 0.8 || 
+            this.calculateSimilarity(normalized2, englishTerm) > 0.8) {
+          return true;
+        }
+      }
     }
 
     return false;
+  }
+
+  private calculateSimilarity(str1: string, str2: string): number {
+    if (str1 === str2) return 1.0;
+    
+    const distance = this.levenshteinDistance(str1, str2);
+    const maxLength = Math.max(str1.length, str2.length);
+    return maxLength === 0 ? 1 : (maxLength - distance) / maxLength;
+  }
+
+  private levenshteinDistance(str1: string, str2: string): number {
+    const matrix: number[][] = Array(str2.length + 1).fill(null).map(() => Array(str1.length + 1).fill(0));
+    
+    // Initialize first row and column
+    for (let i = 0; i <= str2.length; i++) {
+      matrix[i]![0] = i;
+    }
+    for (let j = 0; j <= str1.length; j++) {
+      matrix[0]![j] = j;
+    }
+    
+    // Fill matrix
+    for (let i = 1; i <= str2.length; i++) {
+      for (let j = 1; j <= str1.length; j++) {
+        if (str2.charAt(i - 1) === str1.charAt(j - 1)) {
+          matrix[i]![j] = matrix[i - 1]![j - 1]!;
+        } else {
+          matrix[i]![j] = Math.min(
+            matrix[i - 1]![j - 1]! + 1, // substitution
+            matrix[i]![j - 1]! + 1,     // insertion
+            matrix[i - 1]![j]! + 1      // deletion
+          );
+        }
+      }
+    }
+    
+    return matrix[str2.length]![str1.length]!;
   }
 
   private getCategoryScore(category: string, assessment: HealthAssessment): number {
@@ -316,40 +373,108 @@ export class ProductService {
 
   private getIndonesianHealthMappings(): Record<string, string[]> {
     return {
-      // Digestive issues
+      // Digestive issues - Enhanced with colloquial terms
       'maag': ['gastritis', 'stomach acid', 'acid reflux', 'GERD'],
       'asam lambung': ['acid reflux', 'GERD', 'heartburn'],
       'perut kembung': ['bloating', 'gas', 'indigestion'],
+      'begah': ['bloated', 'stuffed', 'overfull', 'distended'],
+      'eneg': ['nauseous', 'sick', 'queasy'],
+      'mulas': ['stomach cramps', 'abdominal pain', 'digestive pain'],
       'sembelit': ['constipation', 'digestive'],
       'diare': ['diarrhea', 'loose stool'],
       'pencernaan': ['digestion', 'digestive', 'gut health'],
       
-      // Cardiovascular
-      'darah tinggi': ['hypertension', 'high blood pressure'],
-      'hipertensi': ['hypertension', 'high blood pressure'],
-      'kolesterol': ['cholesterol', 'lipid'],
-      'jantung': ['heart', 'cardiovascular', 'cardiac'],
+      // Energy/Fatigue - Colloquial Indonesian terms  
+      'lemes': ['weak', 'fatigue', 'low energy', 'tired'],
+      'capek': ['tired', 'exhausted', 'fatigued'],
+      'ngantuk': ['drowsy', 'sleepy', 'tired'],
+      'lelah': ['fatigue', 'energy', 'stamina', 'tiredness'],
+      'lemas': ['weakness', 'fatigue', 'low energy'],
+      'drop': ['exhausted', 'energy crash', 'fatigue'],
       
-      // Metabolic
+      // Pain & Discomfort - Indonesian expressions
+      'pegel': ['aching', 'sore', 'muscle pain', 'stiff'],
+      'kliyengan': ['dizzy', 'lightheaded', 'vertigo'],
+      'pusing': ['dizziness', 'headache'],
+      
+      // Respiratory - Regional variations
+      'seseg': ['stuffy nose', 'nasal congestion', 'blocked nose'],
+      'batuk': ['cough', 'respiratory'],
+      'flu': ['cold', 'flu', 'respiratory'],
+      
+      // Cardiovascular - Enhanced detection
+      'darah tinggi': ['hypertension', 'high blood pressure', 'cardiovascular'],
+      'hipertensi': ['hypertension', 'high blood pressure', 'cardiovascular'],
+      'tensi naik': ['high blood pressure', 'hypertension', 'cardiovascular'],
+      'tensi tinggi': ['high blood pressure', 'hypertension', 'cardiovascular'],
+      'tekanan darah tinggi': ['hypertension', 'high blood pressure', 'cardiovascular'],
+      'kolesterol': ['cholesterol', 'lipid', 'cardiovascular'],
+      'kolestrol': ['cholesterol', 'lipid', 'cardiovascular'],
+      'jantung': ['heart', 'cardiovascular', 'cardiac'],
+      'berdebar': ['palpitation', 'heart rate', 'cardiovascular'],
+      
+      // Product Names - Direct matching for mGanik products
+      'mganik': ['diabetes', 'hypertension', 'cardiovascular', 'glucose', 'blood pressure'],
+      'ganik': ['diabetes', 'hypertension', 'cardiovascular', 'glucose', 'blood pressure'],
+      'metafiber': ['diabetes', 'glucose', 'blood sugar', 'fiber'],
+      '3peptide': ['hypertension', 'blood pressure', 'cardiovascular', 'heart'],
+      'peptide': ['hypertension', 'blood pressure', 'cardiovascular', 'heart'],
+      'superfood': ['diabetes', 'glucose', 'moringa', 'kelor'],
+      'kelor': ['diabetes', 'superfood', 'moringa'],
+      'moringa': ['diabetes', 'superfood', 'kelor'],
+      
+      // Metabolic - Enhanced
       'diabetes': ['diabetes', 'blood sugar', 'glucose'],
+      'diabates': ['diabetes', 'blood sugar', 'glucose'],
+      'diabetis': ['diabetes', 'blood sugar', 'glucose'],
       'gula darah': ['blood sugar', 'glucose', 'diabetes'],
+      'kencing manis': ['diabetes', 'blood sugar', 'glucose'],
+      'sering haus': ['excessive thirst', 'polydipsia', 'diabetes'],
+      'sering kencing': ['frequent urination', 'polyuria', 'diabetes'],
       'gemuk': ['obesity', 'weight loss', 'overweight'],
+      'kegemukan': ['obesity', 'weight loss', 'overweight'],
+      'berat badan naik': ['weight gain', 'obesity', 'overweight'],
       'kurus': ['weight gain', 'underweight'],
       'diet': ['weight management', 'weight loss'],
       
-      // General symptoms
-      'lelah': ['fatigue', 'energy', 'stamina', 'tiredness'],
-      'pusing': ['dizziness', 'headache'],
+      // Mental Health & Sleep
       'stress': ['stress', 'anxiety', 'mental health'],
+      'stres': ['stress', 'anxiety', 'mental health'],
+      'tertekan': ['stress', 'anxiety', 'depression'],
+      'beban pikiran': ['stress', 'mental health', 'anxiety'],
       'insomnia': ['sleep', 'insomnia', 'sleep disorder'],
-      'lemas': ['weakness', 'fatigue', 'low energy'],
+      'susah tidur': ['insomnia', 'sleep difficulty', 'sleeplessness'],
+      'tidak bisa tidur': ['insomnia', 'sleep difficulty'],
+      'begadang': ['sleep disorder', 'insomnia', 'poor sleep'],
       
-      // Immune system
+      // Immune system - Enhanced
       'imunitas': ['immunity', 'immune system'],
       'imun': ['immunity', 'immune'],
-      'flu': ['cold', 'flu', 'respiratory'],
-      'batuk': ['cough', 'respiratory'],
-      'sering sakit': ['frequent illness', 'weak immunity']
+      'daya tahan tubuh': ['immunity', 'immune system'],
+      'sering sakit': ['frequent illness', 'weak immunity'],
+      'mudah sakit': ['frequent illness', 'low immunity', 'weak immune system'],
+      'gampang flu': ['frequent illness', 'low immunity'],
+      'imun turun': ['low immunity', 'weak immune system'],
+      
+      // Additional colloquial terms
+      'badan remuk': ['body aches', 'muscle pain', 'fatigue'],
+      'badan rasanya remuk': ['body aches', 'muscle pain'],
+      'lambung perih': ['gastritis', 'stomach acid', 'GERD'],
+      'lambung sakit': ['gastritis', 'stomach pain'],
+      'ulu hati': ['heartburn', 'acid reflux', 'GERD'],
+      'tenggorokan sakit': ['sore throat', 'throat pain'],
+      'mata berat': ['tired eyes', 'sleepy', 'fatigue'],
+      'kepala berat': ['headache', 'fatigue', 'stress'],
+      'perut mual': ['nausea', 'stomach upset'],
+      'mual-mual': ['nausea', 'morning sickness'],
+      'badan panas': ['fever', 'body heat', 'infection'],
+      'meriang': ['fever', 'chills', 'flu'],
+      'flu berat': ['severe flu', 'respiratory infection'],
+      'batuk berdahak': ['productive cough', 'respiratory'],
+      'batuk kering': ['dry cough', 'respiratory'],
+      'sesak napas': ['shortness of breath', 'respiratory'],
+      'napas berat': ['difficulty breathing', 'respiratory'],
+      'dada sesak': ['chest tightness', 'respiratory', 'cardiovascular']
     };
   }
 

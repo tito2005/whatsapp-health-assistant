@@ -51,7 +51,10 @@ interface Config {
   adminGroupJid?: string;
   businessName: string;
   businessPhone: string;
+  businessPhone2: string;
   businessAddress: string;
+  adminEmail: string;
+  adminEmailPassword: string;
 }
 
 const config: Config = {
@@ -103,6 +106,10 @@ const config: Config = {
   adminGroupJid: process.env.ADMIN_GROUP_JID || '',
   businessName: process.env.BUSINESS_NAME || 'Arver ID',
   businessPhone: process.env.BUSINESS_PHONE || '+6289674476111',
+  businessPhone2: process.env.BUSINESS_PHONE_2 || '+6281277721866',
+  // Admin configuration
+  adminEmail: process.env.ADMIN_EMAIL_USER || 'arverid@gmail.com',
+  adminEmailPassword: process.env.ADMIN_EMAIL_PASS || '',
   businessAddress: process.env.BUSINESS_ADDRESS || 'Batam, Indonesia',
 };
 

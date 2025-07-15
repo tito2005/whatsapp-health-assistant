@@ -147,9 +147,9 @@ export const asyncHandler = (
 export class ChatbotErrorHandler {
   private static fallbackResponses: Map<ErrorType, string[]> = new Map([
     [ErrorType.CLAUDE_API_ERROR, [
-      'Maaf, sistem AI sedang mengalami gangguan. Silakan coba lagi dalam beberapa saat.',
-      'Ada kendala teknis dengan layanan AI. Tim kami sedang menanganinya.',
-      'Sistem sedang sibuk. Mohon tunggu sebentar dan coba lagi ya.'
+      'Maaf, sistem AI sedang mengalami gangguan. Silakan coba lagi atau hubungi admin di +6289674476111 atau +6281277721866',
+      'Ada kendala teknis dengan layanan AI. Untuk bantuan langsung hubungi +6289674476111 atau +6281277721866',
+      'Sistem sedang sibuk. Coba lagi atau chat admin di +6289674476111 / +6281277721866 ya 😊'
     ]],
     [ErrorType.DATABASE_ERROR, [
       'Maaf, ada gangguan pada sistem database. Silakan coba lagi.',
