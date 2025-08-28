@@ -19,13 +19,11 @@ class DatabaseManager {
   private initializationPromise: Promise<void> | null = null;
 
   constructor() {
-    // Auto-initialize on first access
     this.initializationPromise = this.initializeDatabase();
   }
 
   private async initializeDatabase(): Promise<void> {
     try {
-      // Ensure data directory exists
       const dataDir = path.dirname(config.databasePath);
       
       if (!fs.existsSync(dataDir)) {
@@ -33,7 +31,6 @@ class DatabaseManager {
         logger.info('Created database directory', { path: dataDir });
       }
 
-      // Connect to SQLite database
       this.db = new Database(config.databasePath, (err) => {
         if (err) {
           logger.error('Failed to connect to SQLite database', err);
@@ -42,22 +39,17 @@ class DatabaseManager {
         }
         this.connected = true;
         logger.info('SQLite database connected', { 
-          path: config.databasePath,
-          node_env: config.nodeEnv 
+          path: config.databasePath
         });
       });
 
-      // Enable foreign keys and WAL mode for better performance
       if (this.db) {
         const run = promisify(this.db.run.bind(this.db));
         await run('PRAGMA foreign_keys = ON');
         await run('PRAGMA journal_mode = WAL');
         await run('PRAGMA synchronous = NORMAL');
-        await run('PRAGMA cache_size = 1000');
-        await run('PRAGMA temp_store = MEMORY');
       }
 
-      // Create tables
       await this.createTables();
       
     } catch (error) {
@@ -75,198 +67,56 @@ class DatabaseManager {
     const run = promisify(this.db.run.bind(this.db));
 
     try {
-      // Products table with health-specific fields
-      await run(`
-        CREATE TABLE IF NOT EXISTS products (
-          id TEXT PRIMARY KEY,
-          name TEXT NOT NULL,
-          description TEXT NOT NULL,
-          price REAL NOT NULL CHECK(price > 0),
-          discount_price REAL CHECK(discount_price >= 0),
-          category TEXT NOT NULL,
-          benefits TEXT NOT NULL, -- JSON array
-          ingredients TEXT NOT NULL, -- JSON array
-          suitable_for TEXT NOT NULL, -- JSON array
-          dosage TEXT NOT NULL,
-          warnings TEXT DEFAULT '[]', -- JSON array
-          images TEXT NOT NULL DEFAULT '[]', -- JSON array
-          in_stock BOOLEAN DEFAULT 1,
-          health_conditions TEXT NOT NULL DEFAULT '[]', -- JSON array for matching
-          symptoms TEXT NOT NULL DEFAULT '[]', -- JSON array for matching
-          indonesian_name TEXT DEFAULT NULL,
-          cultural_context TEXT DEFAULT NULL,
-          metadata TEXT DEFAULT '{}', -- JSON object
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-      `);
-
-      // Customers table
-      await run(`
-        CREATE TABLE IF NOT EXISTS customers (
-          id TEXT PRIMARY KEY,
-          phone TEXT NOT NULL UNIQUE,
-          name TEXT DEFAULT NULL,
-          email TEXT DEFAULT NULL,
-          address TEXT DEFAULT NULL,
-          date_of_birth DATE DEFAULT NULL,
-          health_conditions TEXT DEFAULT '[]', -- JSON array
-          medications TEXT DEFAULT '[]', -- JSON array
-          allergies TEXT DEFAULT '[]', -- JSON array
-          health_goals TEXT DEFAULT '[]', -- JSON array
-          preferences TEXT NOT NULL DEFAULT '{"language":"id","communicationStyle":"casual","notificationSettings":{"orderUpdates":true,"healthTips":true,"productRecommendations":true}}', -- JSON object
-          order_history TEXT DEFAULT '[]', -- JSON array of order IDs
-          conversation_history TEXT DEFAULT '[]', -- JSON array of conversation IDs
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-      `);
-
-      // Orders table
-      await run(`
-        CREATE TABLE IF NOT EXISTS orders (
-          id TEXT PRIMARY KEY,
-          customer_id TEXT NOT NULL,
-          items TEXT NOT NULL, -- JSON array of order items
-          total_amount REAL NOT NULL CHECK(total_amount >= 0),
-          status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'collecting_info', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled')),
-          payment_method TEXT CHECK(payment_method IN ('cod', 'bank_transfer', 'ewallet')),
-          shipping_address TEXT NOT NULL, -- JSON object
-          order_date DATETIME DEFAULT CURRENT_TIMESTAMP,
-          estimated_delivery DATE DEFAULT NULL,
-          notes TEXT DEFAULT NULL,
-          metadata TEXT DEFAULT '{}', -- JSON object
-          FOREIGN KEY (customer_id) REFERENCES customers (id) ON DELETE CASCADE
-        )
-      `);
-
-      // Conversations table
+      // Generic conversations table for any sector
       await run(`
         CREATE TABLE IF NOT EXISTS conversations (
           id TEXT PRIMARY KEY,
-          customer_id TEXT NOT NULL,
-          state TEXT NOT NULL DEFAULT 'greeting' CHECK(state IN ('greeting', 'health_inquiry', 'product_recommendation', 'order_collection', 'order_confirmation', 'lifestyle_advice', 'completed')),
-          health_concerns TEXT DEFAULT '[]', -- JSON array
-          recommended_products TEXT DEFAULT '[]', -- JSON array
-          order_in_progress TEXT DEFAULT NULL, -- JSON object
-          messages TEXT NOT NULL DEFAULT '[]', -- JSON array of conversation messages
+          user_id TEXT NOT NULL,
+          messages TEXT NOT NULL DEFAULT '[]',
+          metadata TEXT DEFAULT '{}',
           last_activity DATETIME DEFAULT CURRENT_TIMESTAMP,
-          metadata TEXT DEFAULT '{}', -- JSON object
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          FOREIGN KEY (customer_id) REFERENCES customers (id) ON DELETE CASCADE
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
       `);
 
-      // Product recommendations tracking
+      // Generic data table for sector-specific information
       await run(`
-        CREATE TABLE IF NOT EXISTS product_recommendations (
+        CREATE TABLE IF NOT EXISTS sector_data (
           id TEXT PRIMARY KEY,
-          customer_id TEXT NOT NULL,
-          product_id TEXT NOT NULL,
-          relevance_score REAL NOT NULL CHECK(relevance_score >= 0 AND relevance_score <= 1),
-          reason TEXT NOT NULL,
-          health_context TEXT NOT NULL, -- JSON object
-          recommended_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          customer_response TEXT DEFAULT NULL CHECK(customer_response IN ('interested', 'purchased', 'declined', NULL)),
-          FOREIGN KEY (customer_id) REFERENCES customers (id) ON DELETE CASCADE,
-          FOREIGN KEY (product_id) REFERENCES products (id) ON DELETE CASCADE
-        )
-      `);
-
-      // Business hours table for dynamic operating hours
-      await run(`
-        CREATE TABLE IF NOT EXISTS business_hours (
-          id TEXT PRIMARY KEY,
-          day_of_week INTEGER NOT NULL CHECK(day_of_week >= 0 AND day_of_week <= 6), -- 0=Sunday, 6=Saturday
-          is_open BOOLEAN NOT NULL DEFAULT 0,
-          open_time TEXT CHECK(open_time IS NULL OR LENGTH(open_time) = 5), -- HH:MM format
-          close_time TEXT CHECK(close_time IS NULL OR LENGTH(close_time) = 5), -- HH:MM format
-          is_24_hours BOOLEAN NOT NULL DEFAULT 0,
-          timezone TEXT NOT NULL DEFAULT 'Asia/Jakarta',
-          special_note TEXT DEFAULT NULL,
+          category TEXT NOT NULL,
+          name TEXT NOT NULL,
+          description TEXT NOT NULL,
+          data TEXT NOT NULL DEFAULT '{}',
+          active BOOLEAN DEFAULT 1,
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          UNIQUE(day_of_week)
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
       `);
 
-      // Special schedules for holidays, events, etc.
+      // User interactions tracking
       await run(`
-        CREATE TABLE IF NOT EXISTS special_schedules (
+        CREATE TABLE IF NOT EXISTS user_interactions (
           id TEXT PRIMARY KEY,
-          date TEXT NOT NULL, -- YYYY-MM-DD format
-          is_open BOOLEAN NOT NULL DEFAULT 0,
-          open_time TEXT CHECK(open_time IS NULL OR LENGTH(open_time) = 5), -- HH:MM format
-          close_time TEXT CHECK(close_time IS NULL OR LENGTH(close_time) = 5), -- HH:MM format
-          is_24_hours BOOLEAN NOT NULL DEFAULT 0,
-          reason TEXT NOT NULL, -- Holiday, Special Event, etc.
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          UNIQUE(date)
+          user_id TEXT NOT NULL,
+          interaction_type TEXT NOT NULL,
+          data TEXT DEFAULT '{}',
+          timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
         )
       `);
 
-      // Create indexes for better performance
+      // Create indexes
       const indexes = [
-        'CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers (phone)',
-        'CREATE INDEX IF NOT EXISTS idx_orders_customer_id ON orders (customer_id)',
-        'CREATE INDEX IF NOT EXISTS idx_orders_status ON orders (status)',
-        'CREATE INDEX IF NOT EXISTS idx_orders_date ON orders (order_date DESC)',
-        'CREATE INDEX IF NOT EXISTS idx_conversations_customer_id ON conversations (customer_id)',
-        'CREATE INDEX IF NOT EXISTS idx_conversations_state ON conversations (state)',
+        'CREATE INDEX IF NOT EXISTS idx_conversations_user_id ON conversations (user_id)',
         'CREATE INDEX IF NOT EXISTS idx_conversations_activity ON conversations (last_activity DESC)',
-        'CREATE INDEX IF NOT EXISTS idx_products_category ON products (category)',
-        'CREATE INDEX IF NOT EXISTS idx_products_stock ON products (in_stock)',
-        'CREATE INDEX IF NOT EXISTS idx_recommendations_customer_id ON product_recommendations (customer_id)',
-        'CREATE INDEX IF NOT EXISTS idx_recommendations_date ON product_recommendations (recommended_at DESC)',
-        'CREATE INDEX IF NOT EXISTS idx_business_hours_day ON business_hours (day_of_week)',
-        'CREATE INDEX IF NOT EXISTS idx_special_schedules_date ON special_schedules (date)'
+        'CREATE INDEX IF NOT EXISTS idx_sector_data_category ON sector_data (category)',
+        'CREATE INDEX IF NOT EXISTS idx_sector_data_active ON sector_data (active)',
+        'CREATE INDEX IF NOT EXISTS idx_user_interactions_user_id ON user_interactions (user_id)',
+        'CREATE INDEX IF NOT EXISTS idx_user_interactions_timestamp ON user_interactions (timestamp DESC)'
       ];
 
       for (const indexSql of indexes) {
         await run(indexSql);
       }
-
-      // Create triggers for updated_at timestamps
-      await run(`
-        CREATE TRIGGER IF NOT EXISTS update_products_timestamp 
-        AFTER UPDATE ON products
-        BEGIN
-          UPDATE products SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
-        END
-      `);
-
-      await run(`
-        CREATE TRIGGER IF NOT EXISTS update_customers_timestamp 
-        AFTER UPDATE ON customers
-        BEGIN
-          UPDATE customers SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
-        END
-      `);
-
-      await run(`
-        CREATE TRIGGER IF NOT EXISTS update_conversations_activity 
-        AFTER UPDATE ON conversations
-        BEGIN
-          UPDATE conversations SET last_activity = CURRENT_TIMESTAMP WHERE id = NEW.id;
-        END
-      `);
-
-      await run(`
-        CREATE TRIGGER IF NOT EXISTS update_business_hours_timestamp 
-        AFTER UPDATE ON business_hours
-        BEGIN
-          UPDATE business_hours SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
-        END
-      `);
-
-      await run(`
-        CREATE TRIGGER IF NOT EXISTS update_special_schedules_timestamp 
-        AFTER UPDATE ON special_schedules
-        BEGIN
-          UPDATE special_schedules SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
-        END
-      `);
 
       logger.info('Database tables and indexes created successfully');
 
@@ -330,20 +180,17 @@ class DatabaseManager {
         };
       }
 
-      // Test basic query
       const connection = this.getConnection();
-      
-      // Count records in main tables
-      const productCount = await connection.get('SELECT COUNT(*) as count FROM products');
-      const customerCount = await connection.get('SELECT COUNT(*) as count FROM customers');
+      const conversationCount = await connection.get('SELECT COUNT(*) as count FROM conversations');
+      const dataCount = await connection.get('SELECT COUNT(*) as count FROM sector_data');
       
       return {
         healthy: true,
         message: 'Database healthy',
         details: {
           connected: this.connected,
-          productCount: productCount.count,
-          customerCount: customerCount.count,
+          conversationCount: conversationCount.count,
+          dataCount: dataCount.count,
           databasePath: config.databasePath
         }
       };
@@ -359,27 +206,5 @@ class DatabaseManager {
   }
 }
 
-// Singleton instance
 export const databaseManager = new DatabaseManager();
-
-// Helper function for safe JSON parsing
-export const safeJsonParse = (json: string, defaultValue: any = null): any => {
-  try {
-    return JSON.parse(json);
-  } catch (error) {
-    logger.warn('Failed to parse JSON', { json: json.substring(0, 100), error });
-    return defaultValue;
-  }
-};
-
-// Helper function for safe JSON stringifying
-export const safeJsonStringify = (obj: any): string => {
-  try {
-    return JSON.stringify(obj);
-  } catch (error) {
-    logger.warn('Failed to stringify object', { error });
-    return '{}';
-  }
-};
-
 export default databaseManager;

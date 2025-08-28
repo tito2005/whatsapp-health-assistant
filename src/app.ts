@@ -1,9 +1,10 @@
 import { databaseManager } from '@/config/database';
 import { config } from '@/config/environment';
 import { errorHandler, notFoundHandler } from '@/shared/error-handler';
-import { log, logger } from '@/shared/logger';
+import { logger } from '@/shared/logger';
 import { whatsappRoutes } from '@/whatsapp/routes';
 import { WhatsAppService } from '@/whatsapp/whatsapp-service';
+import { groqService } from '@/ai/groq-service';
 import cors from 'cors';
 import express from 'express';
 import rateLimit from 'express-rate-limit';
@@ -30,21 +31,17 @@ app.use(limiter);
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// Health check endpoint with safe error handling
+// Health check endpoint
 app.get('/health', async (_req, res) => {
   try {
-    // Check WhatsApp service status safely
     let whatsappStatus: any = { connected: false, error: 'Service not initialized' };
     
     if (whatsappService) {
       try {
         whatsappStatus = await whatsappService.getConnectionStatus();
-        
-        // Ensure connected is a boolean
         if (typeof whatsappStatus.connected !== 'boolean') {
           whatsappStatus.connected = false;
         }
-        
       } catch (whatsappError) {
         logger.warn('WhatsApp status check failed', whatsappError);
         whatsappStatus = { 
@@ -54,7 +51,6 @@ app.get('/health', async (_req, res) => {
       }
     }
 
-    // Check database status safely
     let databaseStatus: any;
     try {
       databaseStatus = await databaseManager.healthCheck();
@@ -67,15 +63,38 @@ app.get('/health', async (_req, res) => {
       };
     }
 
-    // Safely determine overall health status
+    // Test AI service
+    let aiStatus: any;
+    try {
+      const aiConnected = await groqService.testConnection();
+      aiStatus = {
+        connected: aiConnected,
+        service: 'groqcloud',
+        model: config.groqModel
+      };
+    } catch (aiError) {
+      aiStatus = {
+        connected: false,
+        error: aiError instanceof Error ? aiError.message : 'AI service error'
+      };
+    }
+
     const isWhatsAppHealthy = Boolean(whatsappStatus?.connected);
     const isDatabaseHealthy = Boolean(databaseStatus?.healthy);
-    const overallStatus = isDatabaseHealthy ? (isWhatsAppHealthy ? 'healthy' : 'partial') : 'degraded';
+    const isAIHealthy = Boolean(aiStatus?.connected);
+    
+    const overallStatus = isDatabaseHealthy && isAIHealthy ? 
+      (isWhatsAppHealthy ? 'healthy' : 'partial') : 'degraded';
 
     const health = {
       status: overallStatus,
       timestamp: new Date().toISOString(),
       environment: config.nodeEnv,
+      business: {
+        name: config.businessName,
+        sector: config.businessSector,
+        aiRole: config.aiRole
+      },
       services: {
         whatsapp: {
           connected: isWhatsAppHealthy,
@@ -84,13 +103,16 @@ app.get('/health', async (_req, res) => {
         database: {
           healthy: isDatabaseHealthy,
           ...databaseStatus
+        },
+        ai: {
+          healthy: isAIHealthy,
+          ...aiStatus
         }
       },
-      version: '1.0.0'
+      version: '2.0.0'
     };
     
-    // Return 200 if database is healthy (core functionality)
-    const statusCode = isDatabaseHealthy ? 200 : 503;
+    const statusCode = isDatabaseHealthy && isAIHealthy ? 200 : 503;
     res.status(statusCode).json(health);
 
   } catch (error) {
@@ -112,23 +134,30 @@ app.use(errorHandler);
 
 const initializeServices = async (): Promise<void> => {
   try {
-    log.startup('Initializing services...');
+    logger.info('Initializing services...');
     
-    // STEP 1: Initialize database FIRST (critical for operations)
-    log.startup('🗄️  Initializing database...');
+    // Initialize database first
+    logger.info('🗄️  Initializing database...');
     await databaseManager.waitForInitialization();
     
     if (!databaseManager.isConnected()) {
-      throw new Error('Database initialization failed - cannot proceed');
+      throw new Error('Database initialization failed');
     }
-    log.startup('✅ Database initialized successfully');
+    logger.info('✅ Database initialized successfully');
 
-    // STEP 2: Initialize WhatsApp service (non-blocking for database operations)
-    log.startup('📱 Initializing WhatsApp service...');
+    // Test AI service
+    logger.info('🤖 Testing AI service...');
+    const aiConnected = await groqService.testConnection();
+    if (!aiConnected) {
+      throw new Error('AI service connection failed');
+    }
+    logger.info('✅ AI service connected successfully');
+
+    // Initialize WhatsApp service
+    logger.info('📱 Initializing WhatsApp service...');
     try {
       whatsappService = new WhatsAppService();
       
-      // Initialize WhatsApp with timeout to prevent hanging
       const initTimeout = new Promise((_, reject) => {
         setTimeout(() => reject(new Error('WhatsApp initialization timeout')), 30000);
       });
@@ -138,38 +167,17 @@ const initializeServices = async (): Promise<void> => {
         initTimeout
       ]);
       
-      // Make service available globally for routes
       app.locals.whatsappService = whatsappService;
-      
-      // Set up message handler safely
-      try {
-        const baileysClient = (whatsappService as any).baileysClient;
-        if (baileysClient && typeof baileysClient.setMessageHandler === 'function') {
-          baileysClient.setMessageHandler(async (message: any) => {
-            try {
-              await whatsappService.processIncomingMessage(message);
-            } catch (error) {
-              logger.error('Error processing message in handler', error);
-            }
-          });
-        }
-      } catch (handlerError) {
-        logger.warn('Failed to set up message handler', handlerError);
-      }
-      
-      log.startup('✅ WhatsApp service initialized successfully');
+      logger.info('✅ WhatsApp service initialized successfully');
       
     } catch (whatsappError) {
-      // WhatsApp initialization failed - continue with database-only mode
-      logger.warn('WhatsApp service initialization failed, continuing in database-only mode', {
+      logger.warn('WhatsApp service initialization failed, continuing without WhatsApp', {
         error: whatsappError instanceof Error ? whatsappError.message : 'Unknown WhatsApp error'
       });
-      
-      // Create a dummy service for routes
       whatsappService = null as any;
     }
     
-    log.startup('🎉 Service initialization completed');
+    logger.info('🎉 Service initialization completed');
     
   } catch (error) {
     logger.error('Critical service initialization failed', error);
@@ -179,70 +187,67 @@ const initializeServices = async (): Promise<void> => {
 
 const startServer = async (): Promise<void> => {
   try {
-    // Initialize services with proper error handling
     await initializeServices();
 
     app.listen(config.port, () => {
-      log.startup(`🚀 Server running on port ${config.port}`, {
+      logger.info(`🚀 Multi-Sector AI Assistant running on port ${config.port}`, {
         environment: config.nodeEnv,
         port: config.port,
-        databasePath: config.databasePath,
         businessName: config.businessName,
+        businessSector: config.businessSector,
+        aiService: 'groqcloud',
         whatsappEnabled: !!whatsappService
       });
       
-      // Log service status
-      logger.info('Service Status Summary', {
-        database: databaseManager.isConnected(),
-        whatsapp: !!whatsappService,
-        port: config.port
-      });
+      console.log('\n' + '='.repeat(60));
+      console.log('🤖 MULTI-SECTOR AI ASSISTANT READY');
+      console.log('='.repeat(60));
+      console.log(`📊 Business: ${config.businessName}`);
+      console.log(`🏢 Sector: ${config.businessSector}`);
+      console.log(`🤖 AI Role: ${config.aiRole}`);
+      console.log(`🌐 Server: http://localhost:${config.port}`);
+      console.log(`📱 WhatsApp: ${whatsappService ? 'Ready' : 'Disabled'}`);
+      console.log('='.repeat(60) + '\n');
     });
 
   } catch (error) {
     logger.error('Failed to start server', error);
     
-    // If it's a database error, exit
     if (error instanceof Error && error.message.includes('Database')) {
       logger.error('Database is required for operation, exiting...');
       process.exit(1);
     }
     
-    // For other errors, try to start with limited functionality
     logger.warn('Starting server with limited functionality...');
     
     app.listen(config.port, () => {
-      log.startup(`⚠️  Server running with limited functionality on port ${config.port}`);
+      logger.info(`⚠️  Server running with limited functionality on port ${config.port}`);
     });
   }
 };
 
-// Graceful shutdown with safe cleanup
+// Graceful shutdown
 const gracefulShutdown = async (signal: string): Promise<void> => {
-  log.shutdown(`${signal} received, shutting down gracefully`);
+  logger.info(`${signal} received, shutting down gracefully`);
   
   try {
-    // Close WhatsApp service safely
     if (whatsappService) {
       try {
-        log.shutdown('Closing WhatsApp service...');
         await whatsappService.disconnect();
       } catch (error) {
         logger.warn('Error closing WhatsApp service', error);
       }
     }
 
-    // Close database connection safely
     if (databaseManager?.isConnected()) {
       try {
-        log.shutdown('Closing database connection...');
         await databaseManager.close();
       } catch (error) {
         logger.warn('Error closing database connection', error);
       }
     }
 
-    log.shutdown('Graceful shutdown completed');
+    logger.info('Graceful shutdown completed');
     process.exit(0);
 
   } catch (error) {
@@ -251,29 +256,25 @@ const gracefulShutdown = async (signal: string): Promise<void> => {
   }
 };
 
-// Handle shutdown signals
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
-// Handle uncaught exceptions with better error info
 process.on('uncaughtException', (error) => {
-  logger.error('Uncaught Exception - this should not happen in production', {
+  logger.error('Uncaught Exception', {
     error: error.message,
-    stack: error.stack,
-    name: error.name
+    stack: error.stack
   });
   gracefulShutdown('UNCAUGHT_EXCEPTION');
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-  logger.error('Unhandled Rejection - this should not happen in production', { 
+  logger.error('Unhandled Rejection', { 
     reason: reason instanceof Error ? reason.message : reason,
     promise: String(promise)
   });
   gracefulShutdown('UNHANDLED_REJECTION');
 });
 
-// Start the server
 if (require.main === module) {
   void startServer();
 }

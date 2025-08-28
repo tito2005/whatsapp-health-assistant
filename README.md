@@ -1,39 +1,89 @@
-# 🤖 WhatsApp Health Assistant
+# 🤖 Multi-Sector WhatsApp AI Assistant
 
-> Enterprise-grade AI-powered conversational system for health product consultation, recommendations, and automated sales processing through WhatsApp.
+> Adaptable AI-powered WhatsApp assistant that can be customized for any business sector using GroqCloud's fast and cost-effective AI models.
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Node.js](https://img.shields.io/badge/Node.js-43853D?style=for-the-badge&logo=node.js&logoColor=white)](https://nodejs.org/)
 [![Express.js](https://img.shields.io/badge/Express.js-404D59?style=for-the-badge&logo=express)](https://expressjs.com/)
-[![Redis](https://img.shields.io/badge/Redis-DC382D?style=for-the-badge&logo=redis&logoColor=white)](https://redis.io/)
-[![Claude AI](https://img.shields.io/badge/Claude%20AI-FF6B35?style=for-the-badge&logo=anthropic&logoColor=white)](https://www.anthropic.com/)
+[![GroqCloud](https://img.shields.io/badge/GroqCloud-FF6B35?style=for-the-badge&logo=groq&logoColor=white)](https://groq.com/)
 [![WhatsApp](https://img.shields.io/badge/WhatsApp-25D366?style=for-the-badge&logo=whatsapp&logoColor=white)](https://www.whatsapp.com/)
+[![pnpm](https://img.shields.io/badge/pnpm-F69220?style=for-the-badge&logo=pnpm&logoColor=white)](https://pnpm.io/)
 
 ## 🌟 Project Overview
 
-A production-ready, scalable WhatsApp-based health consultation and e-commerce platform that demonstrates advanced software engineering principles and AI integration. Built for Indonesian market with comprehensive business logic, state management, and enterprise-grade security.
+A production-ready, sector-agnostic WhatsApp AI assistant that can be easily adapted for any business domain. Built with GroqCloud for fast, cost-effective AI responses and designed for easy customization without code changes.
 
-### 🎯 Business Impact
+### ✨ Key Features
 
-- **50% API Cost Reduction** - Advanced token optimization and conversation compression
-- **Automated Order Processing** - Complete customer journey from consultation to checkout
-- **Health Intelligence** - Symptom analysis and personalized product recommendations
-- **Local Market Focus** - Indonesian language support and regional business practices
-- **Enterprise Scalability** - Multi-tenant architecture ready for business expansion
+- **🏢 Multi-Sector Support** - Easily adapt for health, e-commerce, education, finance, hospitality, or any sector
+- **⚡ GroqCloud Integration** - Ultra-fast AI responses with cost-effective pricing
+- **📱 WhatsApp Native** - Full WhatsApp Business API integration with QR code setup
+- **🔧 Zero-Code Customization** - Configure your AI assistant through environment variables
+- **💾 Persistent Conversations** - SQLite database for conversation history and data
+- **🛡️ Production Ready** - Security, rate limiting, error handling, and monitoring
+- **📊 Real-time Monitoring** - Health checks and performance metrics
 
-### ⚡ Technical Excellence
+## 🚀 Quick Start
 
-- **🏛️ Clean Architecture** - Layered service architecture with clear separation of concerns
-- **🧠 AI Integration** - Anthropic Claude API with advanced conversation management
-- **🔄 State Management** - Redis-based conversation persistence with context optimization
-- **🛡️ Security-First** - Comprehensive data encryption, rate limiting, and input validation
-- **📊 Performance Monitoring** - Token analytics, conversation optimization, and error tracking
-- **🧪 Test Coverage** - Unit tests, integration tests, and comprehensive validation
-- **🚀 Production Ready** - Graceful shutdown, health checks, and monitoring
+### Prerequisites
 
-## 🏗️ System Architecture
+- Node.js 18+ 
+- pnpm (recommended) or npm
+- GroqCloud API key ([Get one free](https://console.groq.com/))
 
-The system follows a **layered service architecture** with clear separation of concerns:
+### Installation
+
+```bash
+# Clone the repository
+git clone <your-repo-url>
+cd whatsapp-ai-assistant
+
+# Install dependencies with pnpm
+pnpm install
+
+# Copy environment configuration
+cp .env.example .env
+
+# Edit .env with your configuration
+nano .env
+```
+
+### Configuration
+
+Edit your `.env` file with your specific settings:
+
+```env
+# Required: Get your free API key from https://console.groq.com/
+GROQ_API_KEY=your_groq_api_key_here
+
+# Customize for your business
+BUSINESS_NAME=Your Business Name
+BUSINESS_SECTOR=health
+AI_ROLE=health consultant
+AI_PERSONALITY=caring and knowledgeable
+
+# Optional: Add custom instructions
+CUSTOM_PROMPT=You specialize in providing health advice and product recommendations...
+```
+
+### Run the Application
+
+```bash
+# Setup database and start development server
+pnpm setup:complete
+
+# Or run individually
+pnpm db:setup
+pnpm dev
+```
+
+### Connect WhatsApp
+
+1. Open http://localhost:3000/api/whatsapp/qr in your browser
+2. Scan the QR code with WhatsApp (Settings → Linked Devices → Link a Device)
+3. Start chatting with your AI assistant!
+
+## 🏗️ Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -44,214 +94,202 @@ The system follows a **layered service architecture** with clear separation of c
 └─────────────────────────────────────────────────────────────────┘
                                 │
 ┌─────────────────────────────────────────────────────────────────┐
-│                  Business Logic Layer                           │
+│                  AI Processing Layer                            │
 │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐ │
-│  │ Claude Service  │  │ Order Service   │  │ Product Service │ │
-│  └─────────────────┘  └─────────────────┘  └─────────────────┘ │
-│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐ │
-│  │ Flow Controller │  │ Context Manager │  │ Health Analysis │ │
+│  │ GroqCloud API   │  │ Conversation    │  │ Prompt Builder  │ │
+│  │                 │  │ Manager         │  │                 │ │
 │  └─────────────────┘  └─────────────────┘  └─────────────────┘ │
 └─────────────────────────────────────────────────────────────────┘
                                 │
 ┌─────────────────────────────────────────────────────────────────┐
 │                     Data Layer                                  │
 │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐ │
-│  │ SQLite Database │  │ Redis Cache     │  │ File Storage    │ │
+│  │ SQLite Database │  │ Conversation    │  │ Sector Data     │ │
+│  │                 │  │ History         │  │ Storage         │ │
 │  └─────────────────┘  └─────────────────┘  └─────────────────┘ │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### 🛠️ Key Components
+## 🎯 Sector Customization
 
-#### **1. Conversation Management**
-- **Stateful Conversations** - Advanced context preservation across multiple messages
-- **Flow Control** - Intelligent conversation state transitions and validation
-- **Token Optimization** - Advanced compression achieving 50% API cost reduction
-- **Multi-Session Support** - Concurrent conversation handling with state isolation
+### Supported Sectors
 
-#### **2. AI Integration**
-- **Claude API Integration** - Anthropic's advanced language model
-- **Prompt Engineering** - Optimized prompts for Indonesian healthcare context
-- **Context Management** - Intelligent conversation history compression
-- **Response Optimization** - Quality-focused token budgeting system
+| Sector | AI Role | Example Use Cases |
+|--------|---------|-------------------|
+| **Health** | Health Consultant | Symptom assessment, product recommendations, wellness advice |
+| **E-commerce** | Sales Assistant | Product discovery, order processing, customer support |
+| **Education** | Learning Assistant | Study guidance, course information, academic support |
+| **Finance** | Financial Advisor | Account inquiries, service information, financial guidance |
+| **Hospitality** | Concierge Assistant | Booking assistance, recommendations, guest services |
+| **Retail** | Store Assistant | Product information, inventory checks, shopping help |
+| **General** | Customer Service | Universal customer support and information |
 
-#### **3. Order Processing**
-- **Complete Sales Pipeline** - From consultation to order confirmation
-- **Regional Validation** - Specialized address validation for Indonesian market
-- **Payment Integration** - Multiple payment methods and COD support
-- **Shipping Optimization** - Zone-based shipping calculations and options
+### Easy Customization
 
-#### **4. Health Intelligence**
-- **Symptom Analysis** - Pattern recognition for health condition assessment
-- **Product Matching** - Intelligent recommendation engine
-- **Consultation Flow** - Structured health assessment workflow
-- **Safety Compliance** - Medical disclaimers and professional referrals
+Simply update your `.env` file:
 
-## 🚀 Technical Implementation
+```env
+# For a Restaurant
+BUSINESS_NAME=Delicious Bistro
+BUSINESS_SECTOR=hospitality
+AI_ROLE=restaurant assistant
+AI_PERSONALITY=friendly and knowledgeable about food
+CUSTOM_PROMPT=You help customers with menu recommendations, reservations, and dining inquiries. You know our menu, hours, and special offers.
 
-### **Core Technologies**
-- **TypeScript** - Strict mode with comprehensive type safety
-- **Node.js** - High-performance async runtime
-- **Express.js** - RESTful API with middleware architecture
-- **Redis** - Session management and conversation state
-- **SQLite** - Embedded database with WAL mode
-- **Claude AI** - Advanced natural language processing
+# For an Online Store
+BUSINESS_NAME=TechStore Pro
+BUSINESS_SECTOR=ecommerce
+AI_ROLE=sales consultant
+AI_PERSONALITY=tech-savvy and helpful
+CUSTOM_PROMPT=You assist customers with product selection, technical specifications, and order processing for electronics and gadgets.
 
-### **Advanced Features**
-- **Rate Limiting** - Comprehensive API protection
-- **Error Handling** - Graceful failure recovery with user-friendly messages
-- **Logging System** - Structured logging with sensitive data masking
-- **Health Monitoring** - Service status tracking and alerting
-- **Security** - Input validation, encryption, and secure data handling
-
-### **Performance Optimizations**
-- **Token Budgeting** - Dynamic token allocation based on conversation state
-- **Conversation Compression** - Intelligent history summarization
-- **Connection Pooling** - Optimized database connections
-- **Caching Strategy** - Redis-based conversation and product caching
-- **Graceful Shutdown** - Clean resource cleanup and process termination
-
-## 📊 Business Intelligence
-
-### **Analytics & Monitoring**
-- **Token Analytics** - Real-time API usage tracking and optimization
-- **Conversation Metrics** - Flow analysis and completion rates
-- **Order Analytics** - Sales performance and customer behavior
-- **Error Tracking** - Comprehensive error classification and monitoring
-
-### **Scalability Design**
-- **Multi-Tenant Architecture** - Ready for multiple business deployments
-- **Resource Optimization** - Efficient memory and CPU usage
-- **Database Scaling** - Optimized queries and indexing strategy
-- **Load Management** - Request queuing and processing optimization
-
-## 🔐 Security & Compliance
-
-### **Data Protection**
-- **End-to-End Encryption** - Secure data transmission and storage
-- **PII Masking** - Automatic sensitive data protection in logs
-- **Input Validation** - Comprehensive sanitization and validation
-- **Session Security** - Secure session management and token handling
-
-### **Healthcare Compliance**
-- **Medical Disclaimers** - Automatic safety warnings and professional referrals
-- **Data Privacy** - GDPR-compliant data handling and storage
-- **Audit Trail** - Comprehensive logging for compliance requirements
-- **Professional Boundaries** - Clear limitations and escalation procedures
-
-## 🌐 Market Adaptation
-
-### **Indonesian Market Features**
-- **Language Support** - Native Indonesian language processing
-- **Regional Business Logic** - Local address validation and shipping zones
-- **Payment Methods** - COD and local payment gateway integration
-- **Cultural Adaptation** - Culturally appropriate conversation patterns
-
-### **Local Business Integration**
-- **Shipping Zones** - Specialized regional delivery options
-- **Business Hours** - Automatic scheduling and out-of-hours handling
-- **Customer Service** - Seamless escalation to human agents
-- **Regulatory Compliance** - Indonesian healthcare and e-commerce regulations
-
-## 📈 Performance Metrics
-
-### **Technical Achievements**
-- **50% API Cost Reduction** - Through advanced token optimization
-- **Sub-second Response Times** - Optimized conversation processing
-- **99.9% Uptime** - Robust error handling and graceful degradation
-- **Concurrent Users** - Scalable architecture supporting multiple simultaneous conversations
-
-### **Business Impact**
-- **Automated Order Processing** - Complete customer journey automation
-- **Health Consultation** - Intelligent symptom analysis and recommendations
-- **Customer Satisfaction** - Natural conversation flow and accurate responses
-- **Operational Efficiency** - Reduced manual intervention and improved response times
-
-## 🧪 Testing & Quality Assurance
-
-### **Testing Strategy**
-- **Unit Tests** - Comprehensive service layer testing
-- **Integration Tests** - API endpoint and database testing
-- **End-to-End Tests** - Complete conversation flow validation
-- **Performance Tests** - Load testing and optimization validation
-
-### **Quality Measures**
-- **Code Coverage** - Comprehensive test coverage across all modules
-- **Type Safety** - Strict TypeScript configuration with zero `any` types
-- **Error Handling** - Comprehensive error scenarios and recovery testing
-- **Security Testing** - Vulnerability scanning and penetration testing
-
-## 🚀 Development & Deployment
-
-### **Development Workflow**
-```bash
-# Development setup
-yarn install          # Install dependencies
-yarn db:setup         # Initialize database
-yarn dev              # Start development server
-
-# Production deployment
-yarn build            # Compile TypeScript
-yarn start            # Start production server
-yarn test             # Run test suite
+# For a Clinic
+BUSINESS_NAME=HealthCare Plus
+BUSINESS_SECTOR=health
+AI_ROLE=patient coordinator
+AI_PERSONALITY=caring and professional
+CUSTOM_PROMPT=You help patients with appointment scheduling, basic health information, and clinic services. Always recommend consulting with medical professionals for serious concerns.
 ```
 
-### **Available Commands**
-- `yarn dev` - Start development server with hot reload
-- `yarn build` - Compile TypeScript to JavaScript
-- `yarn start` - Run production server
-- `yarn test` - Run Jest test suite
-- `yarn lint` - Run ESLint code analysis
-- `yarn type-check` - Run TypeScript type checking
-- `yarn db:setup` - Initialize database with schema
-- `yarn db:seed` - Seed database with sample products
+## 🛠️ Development Commands
 
-### **Monitoring & Maintenance**
-- **Health Checks** - Automatic service monitoring
-- **Log Analysis** - Structured logging for debugging
-- **Performance Monitoring** - Real-time metrics and alerting
-- **Backup Strategy** - Automated database backups
+```bash
+# Development
+pnpm dev                 # Start development server with hot reload
+pnpm build              # Build TypeScript to JavaScript
+pnpm start              # Run production server
 
-## 📚 Documentation & Architecture
+# Database
+pnpm db:setup           # Initialize database
+pnpm db:health          # Check database health
 
-### **Technical Documentation**
-- **API Documentation** - Comprehensive endpoint documentation
-- **Architecture Diagrams** - Visual system design documentation
-- **Database Schema** - Complete data model documentation
-- **Deployment Guide** - Step-by-step deployment instructions
+# Testing
+pnpm test               # Run test suite
+pnpm test:watch         # Run tests in watch mode
+pnpm whatsapp:test      # Test WhatsApp connection
 
-### **Business Documentation**
-- **User Manual** - Complete user interaction guide
-- **Business Logic** - Detailed workflow documentation
-- **Compliance Guide** - Healthcare and regulatory requirements
-- **Troubleshooting** - Common issues and resolution procedures
+# Code Quality
+pnpm lint               # Run ESLint
+pnpm lint:fix           # Fix ESLint issues
+pnpm format             # Format code with Prettier
+pnpm type-check         # TypeScript type checking
+```
 
----
+## 🔧 Advanced Configuration
 
-## 🎯 Professional Highlights
+### AI Model Selection
 
-This project demonstrates expertise in:
-- **Enterprise Architecture** - Scalable, maintainable system design
-- **AI Integration** - Advanced language model implementation
-- **Performance Optimization** - Cost-effective and efficient solutions
-- **Security Implementation** - Comprehensive data protection measures
-- **Business Intelligence** - Analytics and monitoring systems
-- **Market Adaptation** - Localized business logic and compliance
-- **Quality Engineering** - Comprehensive testing and validation
+GroqCloud offers several high-performance models:
 
-**Technologies:** TypeScript, Node.js, Express.js, Redis, SQLite, Claude AI, WhatsApp API, Jest, Docker
+```env
+# Ultra-fast responses (recommended for customer service)
+GROQ_MODEL=llama-3.1-8b-instant
 
-**Business Impact:** 50% API cost reduction, automated order processing, health consultation automation, Indonesian market adaptation
+# Balanced performance and quality
+GROQ_MODEL=llama-3.1-70b-versatile
 
----
+# Maximum quality for complex tasks
+GROQ_MODEL=llama-3.1-405b-reasoning
+```
+
+### Custom Prompts by Sector
+
+#### Health Sector
+```env
+CUSTOM_PROMPT=You are a knowledgeable health consultant. Provide general wellness advice, explain health conditions in simple terms, and recommend appropriate products. Always include medical disclaimers and encourage professional consultation for serious conditions.
+```
+
+#### E-commerce Sector
+```env
+CUSTOM_PROMPT=You are a sales expert who helps customers find the perfect products. Ask about their needs, budget, and preferences. Guide them through the ordering process and provide excellent customer service.
+```
+
+#### Education Sector
+```env
+CUSTOM_PROMPT=You are an educational assistant who helps students learn effectively. Provide study tips, explain concepts clearly, and guide students to appropriate resources. Encourage active learning and critical thinking.
+```
+
+## 📊 Monitoring & Analytics
+
+### Health Check Endpoint
+
+Visit `http://localhost:3000/health` to see:
+
+- WhatsApp connection status
+- Database health
+- AI service connectivity
+- Overall system status
+- Performance metrics
+
+### Logs
+
+- **Development**: Console output with pretty formatting
+- **Production**: File-based logging in `./logs/`
+- **Error Tracking**: Automatic error categorization and alerting
+
+## 🔐 Security Features
+
+- **Rate Limiting**: Prevents API abuse
+- **Input Validation**: Sanitizes all user inputs
+- **Error Handling**: Graceful error recovery
+- **Data Protection**: Secure conversation storage
+- **CORS Protection**: Configurable cross-origin policies
+
+## 🌐 Deployment
+
+### Environment Setup
+
+```bash
+# Production environment
+NODE_ENV=production
+PORT=3000
+
+# Required for production
+GROQ_API_KEY=your_production_api_key
+DATABASE_PATH=/app/data/assistant.db
+LOG_LEVEL=warn
+```
+
+### Docker Deployment (Optional)
+
+```dockerfile
+FROM node:18-alpine
+WORKDIR /app
+COPY package.json pnpm-lock.yaml ./
+RUN npm install -g pnpm && pnpm install --frozen-lockfile
+COPY . .
+RUN pnpm build
+EXPOSE 3000
+CMD ["pnpm", "start"]
+```
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature/amazing-feature`
+3. Commit changes: `git commit -m 'Add amazing feature'`
+4. Push to branch: `git push origin feature/amazing-feature`
+5. Open a Pull Request
 
 ## 📄 License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
 
-## 👤 Author
+## 🆘 Support
 
-**Arif Tan**
-- Software Engineer with 6+ years experience
-- Specializing in AI integration and enterprise systems
-- Location: Indonesia (UTC+7)
+- **Documentation**: Check this README and code comments
+- **Issues**: Open a GitHub issue for bugs or feature requests
+- **Discussions**: Use GitHub Discussions for questions and ideas
+
+## 🎉 Success Stories
+
+This assistant framework has been successfully adapted for:
+
+- **Healthcare**: Patient consultations and product recommendations
+- **E-commerce**: Customer support and sales automation  
+- **Education**: Student guidance and learning support
+- **Hospitality**: Guest services and booking assistance
+
+---
+
+**Ready to build your AI assistant?** Start by customizing your `.env` file and running `pnpm setup:complete`!

@@ -1,43 +1,51 @@
-import { ClaudeService, ConversationContext } from '@/claude/claude-service';
-import { ConversationManager } from '@/claude/conversation-manager';
+import { groqService } from '@/ai/groq-service';
+import { conversationManager } from '@/ai/conversation-manager';
 import { config } from '@/config/environment';
-import { log, logger } from '@/shared/logger';
-import { BusinessHoursService } from '@/services/business-hours-service';
+import { logger } from '@/shared/logger';
 import type { WhatsAppMessage } from '@/types/whatsapp';
 import { BaileysClient } from './baileys-client';
-import { adminNotificationService } from '@/admin/admin-notification-service';
 
 export class WhatsAppService {
   private baileysClient: BaileysClient;
-  private claudeService: ClaudeService;
-  private conversationManager: ConversationManager;
-  private businessHoursService: BusinessHoursService;
   private processingMessages: Set<string> = new Set();
+  private systemPrompt: string = '';
 
   constructor() {
     this.baileysClient = new BaileysClient();
-    this.claudeService = new ClaudeService();
-    this.conversationManager = new ConversationManager();
-    this.businessHoursService = new BusinessHoursService();
+    void this.initializeSystemPrompt();
+  }
+
+  private async initializeSystemPrompt(): Promise<void> {
+    try {
+      this.systemPrompt = await groqService.generateSystemPrompt(
+        config.businessSector,
+        config.aiRole,
+        config.aiPersonality
+      );
+      logger.info('System prompt initialized for sector', { 
+        sector: config.businessSector,
+        role: config.aiRole 
+      });
+    } catch (error) {
+      logger.error('Failed to initialize system prompt', { error });
+      this.systemPrompt = `You are a helpful AI assistant for ${config.businessName}. Be professional and helpful.`;
+    }
   }
 
   public async initialize(): Promise<void> {
     try {
-      // Initialize conversation manager first
-      await this.conversationManager.initialize();
+      // Start conversation cleanup schedule
+      conversationManager.startCleanupSchedule();
       
-      // Connect admin notification service to WhatsApp service for escalations
-      adminNotificationService.setWhatsAppService(this);
-      
-      // Set up message handler before initializing Baileys
+      // Set up message handler
       this.baileysClient.setMessageHandler(this.processIncomingMessage.bind(this));
       
       // Initialize Baileys client
       await this.baileysClient.initialize();
       
-      log.startup('WhatsApp service initialized successfully with escalation support');
+      logger.info('WhatsApp service initialized successfully');
     } catch (error) {
-      logger.error('Failed to initialize WhatsApp service', error);
+      logger.error('Failed to initialize WhatsApp service', { error });
       throw error;
     }
   }
@@ -47,7 +55,7 @@ export class WhatsAppService {
     try {
       // Validate message data
       if (!messageData || !messageData.key) {
-        logger.warn('Invalid message data received', { messageData });
+        logger.warn('Invalid message data received');
         return;
       }
 
@@ -55,33 +63,22 @@ export class WhatsAppService {
       const message: WhatsAppMessage = this.parseMessageData(messageData);
       messageId = message.id;
       
-      // Skip if already processing this message (prevent duplicates)
+      // Skip if already processing this message
       if (this.processingMessages.has(message.id)) {
         logger.debug('Skipping duplicate message', { messageId: message.id });
         return;
       }
       
       this.processingMessages.add(message.id);
-      
-      log.whatsapp.message(message.from, message.id, message.type);
 
       // Skip messages from self
       if (message.isFromMe) {
-        logger.debug('Skipping message from self');
         this.processingMessages.delete(message.id);
         return;
       }
 
       // Skip status broadcast messages
       if (message.from === 'status' || message.from.includes('broadcast')) {
-        logger.debug('Skipping broadcast message');
-        this.processingMessages.delete(message.id);
-        return;
-      }
-
-      // Skip group messages for now (optional - can be configured)
-      if (message.messageInfo?.isGroup) {
-        logger.debug('Skipping group message', { from: message.from });
         this.processingMessages.delete(message.id);
         return;
       }
@@ -93,26 +90,24 @@ export class WhatsAppService {
         return;
       }
 
-      // Process with Claude AI
-      await this.processWithClaude(message);
+      // Process with AI
+      await this.processWithAI(message);
       
     } catch (error) {
       logger.error('Error processing incoming message', { 
         error: error instanceof Error ? error.message : error,
-        stack: error instanceof Error ? error.stack : undefined,
         messageId 
       });
       
-      // Always clean up processing state
       if (messageId) {
         this.processingMessages.delete(messageId);
       }
       
-      // Send error response to user if we have message info
+      // Send error response to user
       try {
         const message = this.parseMessageData(messageData);
         if (message.from && !message.isFromMe) {
-          await this.sendErrorResponse(message.from, 'processing');
+          await this.sendErrorResponse(message.from);
         }
       } catch (parseError) {
         logger.error('Failed to send error response', { parseError });
@@ -120,125 +115,60 @@ export class WhatsAppService {
     }
   }
 
-  private async processWithClaude(message: WhatsAppMessage): Promise<void> {
+  private async processWithAI(message: WhatsAppMessage): Promise<void> {
     try {
       // Show typing indicator
       await this.sendTypingIndicator(message.from);
       
-      // Check business hours first
-      const businessStatus = await this.businessHoursService.getCurrentStatus();
-      
-      // Get or create conversation context
-      const conversation = await this.conversationManager.addMessage(
+      // Get conversation context
+      const conversation = await conversationManager.addMessage(
         message.from,
         'user',
         message.body
       );
 
-      // If shop is closed and this is a new conversation or specific inquiry, send business hours info
-      if (!businessStatus.isOpen && this.shouldSendBusinessHoursInfo(message.body, conversation)) {
-        const businessHoursMessage = await this.businessHoursService.getStatusMessage();
-        await this.sendMessage(message.from, businessHoursMessage);
-        
-        // Log business hours interaction
-        logger.info('Business hours message sent', {
-          from: message.from,
-          isOpen: businessStatus.isOpen,
-          currentTime: businessStatus.currentTime
-        });
-        
-        // Still process with Claude but with business hours context
-        if (!conversation.metadata) {
-          conversation.metadata = {};
-        }
-        conversation.metadata.businessHoursStatus = businessStatus;
-        conversation.metadata.sentBusinessHoursInfo = true;
-      }
-
-      // Process with Claude (with business hours context if shop is closed)
-      const { response, newState } = await this.claudeService.processMessage(
-        message.body,
-        conversation
+      // Process with GroqCloud
+      const response = await groqService.processMessage(
+        conversation.messages,
+        this.systemPrompt
       );
 
-      // Update conversation with response
-      await this.conversationManager.addMessage(message.from, 'assistant', response);
-      await this.conversationManager.updateState(message.from, newState);
+      // Add AI response to conversation
+      await conversationManager.addMessage(
+        message.from,
+        'assistant',
+        response.content
+      );
 
-      // Send response (only if we haven't already sent business hours message for simple inquiries)
-      if (businessStatus.isOpen || !this.isSimpleBusinessHoursInquiry(message.body)) {
-        await this.sendMessage(message.from, response);
-      }
+      // Send response
+      await this.sendMessage(message.from, response.content);
 
-      // Log successful interaction
       logger.info('Message processed successfully', {
         from: message.from,
         messageLength: message.body.length,
-        responseLength: response.length,
-        state: newState,
-        businessOpen: businessStatus.isOpen
+        responseLength: response.content.length,
+        tokensUsed: response.usage.total_tokens
       });
 
     } catch (error) {
-      logger.error('Error processing with Claude', error, { from: message.from });
-      
-      // Send fallback message
-      await this.sendMessage(
-        message.from,
-        'Maaf, ada kendala saat memproses pesan Anda. Silakan coba lagi atau hubungi kami langsung. 🙏'
-      );
+      logger.error('Error processing with AI', { error, from: message.from });
+      await this.sendErrorResponse(message.from);
     } finally {
       this.processingMessages.delete(message.id);
     }
   }
 
-  private shouldSendBusinessHoursInfo(messageBody: string, conversation: ConversationContext): boolean {
-    // Only send business hours info when specifically asked about shipping/delivery times
-    // NOT automatically for new conversations or general orders
-    
-    const lowerBody = messageBody.toLowerCase();
-    const specificShippingKeywords = [
-      'jam pengiriman', 'kapan dikirim', 'waktu pengiriman', 'jadwal kirim',
-      'jam operasional', 'jam kerja pengiriman', 'kapan sampai'
-    ];
-    
-    const isAskingSpecificShippingInfo = specificShippingKeywords.some(keyword => 
-      lowerBody.includes(keyword)
-    );
-    
-    const alreadySentInfo = conversation.metadata?.sentBusinessHoursInfo;
-    
-    // Only send if specifically asking about shipping times and haven't sent before
-    return isAskingSpecificShippingInfo && !alreadySentInfo;
-  }
-
-  private isSimpleBusinessHoursInquiry(messageBody: string): boolean {
-    // Check if this is just asking about business hours and nothing else
-    const lowerBody = messageBody.toLowerCase();
-    const simpleInquiries = [
-      'jam berapa', 'kapan buka', 'kapan tutup', 'jam operasional', 
-      'jam kerja', 'buka jam berapa', 'tutup jam berapa'
-    ];
-    
-    return simpleInquiries.some(inquiry => 
-      lowerBody.includes(inquiry) && lowerBody.length < 50
-    );
-  }
-
   private async sendTypingIndicator(to: string): Promise<void> {
     try {
-      // Baileys typing indicator
       const jid = to.includes('@') ? to : `${to}@s.whatsapp.net`;
       await this.baileysClient.getSocket()?.presenceSubscribe(jid);
       await this.baileysClient.getSocket()?.sendPresenceUpdate('composing', jid);
       
-      // Clear typing after sending message
       setTimeout(async () => {
         await this.baileysClient.getSocket()?.sendPresenceUpdate('paused', jid);
       }, 1000);
     } catch (error) {
       logger.debug('Error sending typing indicator', { error });
-      // Non-critical, continue
     }
   }
 
@@ -249,62 +179,40 @@ export class WhatsAppService {
     }
 
     if (!this.baileysClient.isConnected()) {
-      const error = new Error('WhatsApp client is not connected');
-      logger.error('Cannot send message - client disconnected', { to, error });
-      throw error;
+      throw new Error('WhatsApp client is not connected');
     }
 
-    const maxRetries = 3;
-    let retryCount = 0;
-
-    while (retryCount < maxRetries) {
-      try {
-        await this.baileysClient.sendMessage(to, message);
-        logger.info('Message sent successfully', { 
-          to, 
-          messageLength: message.length,
-          retryCount 
-        });
-        return;
-      } catch (error) {
-        retryCount++;
-        logger.warn(`Failed to send message (attempt ${retryCount}/${maxRetries})`, { 
-          error: error instanceof Error ? error.message : error,
-          to,
-          retryCount
-        });
-
-        if (retryCount >= maxRetries) {
-          logger.error('Failed to send message after all retries', { error, to });
-          throw error;
-        }
-
-        // Wait before retry (exponential backoff)
-        await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
-      }
+    try {
+      await this.baileysClient.sendMessage(to, message);
+      logger.info('Message sent successfully', { 
+        to, 
+        messageLength: message.length
+      });
+    } catch (error) {
+      logger.error('Failed to send message', { error, to });
+      throw error;
     }
   }
 
   public async getConnectionStatus(): Promise<object> {
     try {
       const baileysStatus = await this.baileysClient.getDetailedStatus();
-      const conversationStatus = { status: 'operational' }; // TODO: Add getStatus method to ConversationManager
       
       return {
         connected: this.baileysClient.isConnected(),
         lastConnected: new Date().toISOString(),
         sessionId: this.baileysClient.getSessionId(),
-        activeConversations: this.processingMessages.size,
+        activeConversations: conversationManager.getActiveConversations(),
+        processingMessages: this.processingMessages.size,
         baileys: baileysStatus,
-        conversations: conversationStatus,
-        processingMessages: Array.from(this.processingMessages)
+        aiService: 'groqcloud',
+        businessSector: config.businessSector
       };
     } catch (error) {
       logger.error('Error getting connection status', { error });
       return {
         connected: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-        lastConnected: new Date().toISOString()
+        error: error instanceof Error ? error.message : 'Unknown error'
       };
     }
   }
@@ -315,16 +223,13 @@ export class WhatsAppService {
 
   public async disconnect(): Promise<void> {
     await this.baileysClient.disconnect();
-    await this.conversationManager.disconnect();
     logger.info('WhatsApp service disconnected');
   }
 
   private parseMessageData(messageData: any): WhatsAppMessage {
-    // Parse Baileys message format
     const from = messageData.key?.remoteJid || '';
     const cleanFrom = from.replace('@s.whatsapp.net', '').replace('@g.us', '');
     
-    // Enhanced message content extraction
     const messageContent = this.extractMessageContent(messageData.message);
     
     return {
@@ -334,7 +239,6 @@ export class WhatsAppService {
       timestamp: messageData.messageTimestamp || Date.now(),
       type: messageContent.type,
       isFromMe: messageData.key?.fromMe || false,
-      // Additional metadata
       messageInfo: {
         isGroup: from.includes('@g.us'),
         participant: messageData.key?.participant,
@@ -351,7 +255,6 @@ export class WhatsAppService {
       return { text: '', type: 'text', hasMedia: false };
     }
 
-    // Text messages
     if (message.conversation) {
       return { text: message.conversation, type: 'text', hasMedia: false };
     }
@@ -360,10 +263,9 @@ export class WhatsAppService {
       return { text: message.extendedTextMessage.text || '', type: 'text', hasMedia: false };
     }
 
-    // Media messages with captions
     if (message.imageMessage) {
       return { 
-        text: message.imageMessage.caption || '[Gambar]', 
+        text: message.imageMessage.caption || '[Image]', 
         type: 'image', 
         hasMedia: true 
       };
@@ -378,9 +280,8 @@ export class WhatsAppService {
     }
 
     if (message.audioMessage) {
-      const isVoiceNote = message.audioMessage.ptt;
       return { 
-        text: isVoiceNote ? '[Voice Note]' : '[Audio]', 
+        text: '[Audio Message]', 
         type: 'audio', 
         hasMedia: true 
       };
@@ -389,161 +290,49 @@ export class WhatsAppService {
     if (message.documentMessage) {
       const filename = message.documentMessage.fileName || 'document';
       return { 
-        text: `[Dokumen: ${filename}]`, 
+        text: `[Document: ${filename}]`, 
         type: 'document', 
         hasMedia: true 
       };
     }
 
-    // Special message types
-    if (message.contactMessage) {
-      const contact = message.contactMessage.displayName || 'Contact';
-      return { text: `[Kontak: ${contact}]`, type: 'text', hasMedia: false };
-    }
-
-    if (message.locationMessage) {
-      return { text: '[Lokasi]', type: 'text', hasMedia: false };
-    }
-
-    if (message.liveLocationMessage) {
-      return { text: '[Live Location]', type: 'text', hasMedia: false };
-    }
-
-    if (message.stickerMessage) {
-      return { text: '[Stiker]', type: 'image', hasMedia: true };
-    }
-
-    // Fallback for unknown message types
-    const messageType = Object.keys(message)[0] || 'unknown';
-    return { text: `[${messageType}]`, type: 'text', hasMedia: true };
+    return { text: '[Unknown Message Type]', type: 'text', hasMedia: true };
   }
 
-  // Helper methods for error handling and non-text messages
   private async handleNonTextMessage(message: WhatsAppMessage): Promise<void> {
     try {
       let responseMessage = '';
       
       switch (message.type) {
         case 'image':
-          responseMessage = 'Terima kasih telah mengirim gambar! Saat ini saya hanya bisa memproses pesan teks untuk konsultasi kesehatan. Silakan jelaskan keluhan Anda dengan kata-kata. 😊';
+          responseMessage = 'Thank you for the image! Currently I can only process text messages. Please describe your inquiry in text.';
           break;
         case 'audio':
-          responseMessage = 'Terima kasih telah mengirim pesan suara! Saat ini saya hanya bisa memproses pesan teks. Silakan ketik keluhan atau pertanyaan kesehatan Anda. 🎤';
+          responseMessage = 'Thank you for the voice message! Currently I can only process text messages. Please type your message.';
           break;
         case 'video':
-          responseMessage = 'Terima kasih telah mengirim video! Untuk konsultasi kesehatan, silakan jelaskan keluhan Anda dengan pesan teks. 🎥';
+          responseMessage = 'Thank you for the video! For assistance, please send your inquiry as a text message.';
           break;
         case 'document':
-          responseMessage = 'Terima kasih telah mengirim dokumen! Untuk konsultasi awal, silakan ceritakan keluhan Anda dengan pesan teks terlebih dahulu. 📄';
+          responseMessage = 'Thank you for the document! Please describe your inquiry in a text message.';
           break;
         default:
-          responseMessage = 'Maaf, saat ini saya hanya bisa memproses pesan teks. Silakan kirim pesan teks untuk konsultasi kesehatan. 😊';
+          responseMessage = 'I can only process text messages at the moment. Please send a text message for assistance.';
       }
       
       await this.sendMessage(message.from, responseMessage);
       
-      logger.info('Handled non-text message', {
-        from: message.from,
-        type: message.type,
-        hasMedia: message.messageInfo?.hasMedia
-      });
     } catch (error) {
       logger.error('Error handling non-text message', { error, message });
     }
   }
 
-  private async sendErrorResponse(to: string, errorType: 'processing' | 'claude' | 'connection'): Promise<void> {
+  private async sendErrorResponse(to: string): Promise<void> {
     try {
-      let errorMessage = '';
-      
-      switch (errorType) {
-        case 'processing':
-          errorMessage = 'Maaf, ada kendala saat memproses pesan Anda. Silakan coba lagi dalam beberapa saat. 🙏';
-          break;
-        case 'claude':
-          errorMessage = 'Maaf, layanan konsultasi sedang mengalami gangguan. Silakan coba lagi atau hubungi kami langsung. 🙏';
-          break;
-        case 'connection':
-          errorMessage = 'Maaf, koneksi sedang tidak stabil. Pesan Anda akan diproses segera setelah koneksi pulih. 🙏';
-          break;
-        default:
-          errorMessage = 'Maaf, terjadi kesalahan teknis. Silakan coba lagi. 🙏';
-      }
-      
+      const errorMessage = 'Sorry, there was a technical issue processing your message. Please try again or contact us directly.';
       await this.sendMessage(to, errorMessage);
     } catch (error) {
-      logger.error('Failed to send error response', { error, to, errorType });
-    }
-  }
-
-  // Enhanced admin notification with error handling
-  public async notifyAdmin(message: string, priority: 'info' | 'warning' | 'error' = 'info'): Promise<void> {
-    if (!config.adminGroupJid) {
-      logger.debug('Admin group JID not configured, skipping notification');
-      return;
-    }
-
-    try {
-      const emoji = priority === 'error' ? '⚠️' : priority === 'warning' ? '🔴' : 'ℹ️';
-      const timestamp = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
-      const adminMessage = `${emoji} [${priority.toUpperCase()}] ${timestamp}\n${message}`;
-      
-      if (config.adminGroupJid) {
-        await this.sendMessage(config.adminGroupJid, adminMessage);
-      }
-      logger.info('Admin notification sent', { priority, messageLength: message.length });
-    } catch (error) {
-      logger.error('Failed to notify admin', { error, priority, message: message.substring(0, 100) });
-    }
-  }
-
-  // Health check and recovery methods
-  public async performHealthCheck(): Promise<boolean> {
-    try {
-      const isConnected = this.baileysClient.isConnected();
-      
-      if (!isConnected) {
-        logger.warn('WhatsApp client not connected during health check');
-        await this.notifyAdmin('WhatsApp connection lost, attempting recovery', 'warning');
-        
-        // Attempt automatic recovery
-        try {
-          await this.baileysClient.initialize();
-          logger.info('WhatsApp connection recovered successfully');
-          await this.notifyAdmin('WhatsApp connection recovered', 'info');
-          return true;
-        } catch (recoveryError) {
-          logger.error('Failed to recover WhatsApp connection', { recoveryError });
-          await this.notifyAdmin('WhatsApp connection recovery failed', 'error');
-          return false;
-        }
-      }
-      
-      return true;
-    } catch (error) {
-      logger.error('Health check failed', { error });
-      return false;
-    }
-  }
-
-  // Graceful cleanup
-  public async cleanup(): Promise<void> {
-    try {
-      logger.info('Starting WhatsApp service cleanup');
-      
-      // Clear processing messages
-      this.processingMessages.clear();
-      
-      // Disconnect services
-      await Promise.allSettled([
-        this.baileysClient.disconnect(),
-        this.conversationManager.disconnect()
-      ]);
-      
-      logger.info('WhatsApp service cleanup completed');
-    } catch (error) {
-      logger.error('Error during cleanup', { error });
-      throw error;
+      logger.error('Failed to send error response', { error, to });
     }
   }
 }
