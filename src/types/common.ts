@@ -5,29 +5,30 @@ export interface ApiResponse<T = any> {
   error?: string;
 }
 
-export interface PaginationParams {
-  page: number;
-  limit: number;
-  offset: number;
-}
-
-export interface PaginatedResponse<T> extends ApiResponse<T[]> {
-  pagination: {
-    page: number;
-    limit: number;
-    total: number;
-    totalPages: number;
-  };
-}
-
 export interface HealthStatus {
-  status: 'healthy' | 'unhealthy';
+  status: 'healthy' | 'partial' | 'degraded' | 'unhealthy';
   timestamp: string;
   environment: string;
-  services: {
-    whatsapp: boolean;
-    redis: boolean;
-    database: boolean;
-    claude: boolean;
+  business: {
+    name: string;
+    sector: string;
+    aiRole: string;
   };
+  services: {
+    whatsapp: {
+      connected: boolean;
+      [key: string]: any;
+    };
+    database: {
+      healthy: boolean;
+      [key: string]: any;
+    };
+    ai: {
+      healthy: boolean;
+      service: string;
+      model: string;
+      [key: string]: any;
+    };
+  };
+  version: string;
 }
